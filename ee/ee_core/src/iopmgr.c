@@ -312,6 +312,13 @@ void New_Reset_Iop2(const char *arg, int arglen, int eeload)
             reboot2 = 1;
             reboot3 = 1;
         }
+
+        // V12 force fix: always do full reset chain for game-initiated resets
+        // V12 silicon needs fully clean IOP state before reboot3 with game IOPRP
+        reboot1 = 1;
+        reboot2 = 1;
+        reboot3 = 1;
+        DPRINTF("agent-5 force-full-reset: 1+2+3 forced\n");
     }
 
     // Ignore duplicate IOP resets
