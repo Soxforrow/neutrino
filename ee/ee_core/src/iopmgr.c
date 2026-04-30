@@ -168,6 +168,10 @@ void New_Reset_Iop(const char *arg, int arglen)
     print_iop_args(arglen, arg);
 #endif
 
+    // DBC: Entry to New_Reset_Iop
+    if (eec.flags & EECORE_FLAG_DBC)
+        *GS_REG_BGCOLOR = COLOR_TEAL;
+
     udnl_cmdlen = 0;
     if (arglen >= 10) {
         // Copy: rom0:UDNL or rom1:UDNL
@@ -221,8 +225,16 @@ void New_Reset_Iop(const char *arg, int arglen)
     *(void **)(UNCACHED_SEG(&((unsigned char *)imgdrv_irx)[imgdrv_offset+4])) = pIOP_buffer;
     *(u32   *)(UNCACHED_SEG(&((unsigned char *)imgdrv_irx)[imgdrv_offset+8])) = size_IOPRP_img;
 
+    // DBC: After SifAllocIopHeap + CopyToIop + imgdrv patching
+    if (eec.flags & EECORE_FLAG_DBC)
+        *GS_REG_BGCOLOR = COLOR_GREEN;
+
     // Load patched imgdrv.irx
     SifExecModuleBuffer((void *)imgdrv_irx, size_imgdrv_irx, 0, NULL, NULL);
+
+    // DBC: After SifExecModuleBuffer for imgdrv
+    if (eec.flags & EECORE_FLAG_DBC)
+        *GS_REG_BGCOLOR = COLOR_BLUE;
 
     // Trigger IOP reboot with update
     DIntr();
@@ -230,6 +242,10 @@ void New_Reset_Iop(const char *arg, int arglen)
     Old_SifSetReg(SIF_REG_SMFLAG, SIF_STAT_BOOTEND);
     ee_kmode_exit();
     EIntr();
+
+    // DBC: After Old_SifSetReg(SIF_REG_SMFLAG, SIF_STAT_BOOTEND)
+    if (eec.flags & EECORE_FLAG_DBC)
+        *GS_REG_BGCOLOR = COLOR_OLIVE;
 
     if (udnl_irx != NULL) {
         // Load custom UDNL
@@ -240,6 +256,10 @@ void New_Reset_Iop(const char *arg, int arglen)
         _SifLoadModule(udnl_mod, udnl_cmdlen, udnl_cmd, NULL, LF_F_MOD_LOAD, 1);
     }
 
+    // DBC: After _SifExecModuleBuffer / _SifLoadModule for UDNL
+    if (eec.flags & EECORE_FLAG_DBC)
+        *GS_REG_BGCOLOR = COLOR_RED;
+
     DIntr();
     ee_kmode_enter();
     Old_SifSetReg(SIF_REG_SMFLAG, SIF_STAT_SIFINIT);
@@ -249,15 +269,32 @@ void New_Reset_Iop(const char *arg, int arglen)
     ee_kmode_exit();
     EIntr();
 
+    // DBC: After the second batch of Old_SifSetReg
+    if (eec.flags & EECORE_FLAG_DBC)
+        *GS_REG_BGCOLOR = COLOR_PURPLE;
+
     _iop_reboot_count++; // increment reboot counter to allow RPC clients to detect unbinding!
 
     while (!SifIopSync()) {
         ;
     }
 
+    // DBC: After SifIopSync loop (success indicator)
+    if (eec.flags & EECORE_FLAG_DBC)
+        *GS_REG_BGCOLOR = COLOR_WHITE;
+
     services_start();
+
+    // DBC: After services_start
+    if (eec.flags & EECORE_FLAG_DBC)
+        *GS_REG_BGCOLOR = GSCOLOR32(255, 128, 0);
+
     // Patch the IOP to support LoadModuleBuffer
     sbv_patch_enable_lmb();
+
+    // DBC: After sbv_patch_enable_lmb
+    if (eec.flags & EECORE_FLAG_DBC)
+        *GS_REG_BGCOLOR = GSCOLOR32(128, 255, 0);
 
     DPRINTF("Loading extra IOP modules...\n");
     // Skip the first modules:
@@ -269,7 +306,15 @@ void New_Reset_Iop(const char *arg, int arglen)
         SifExecModuleBuffer((void *)p.ptr, p.size, p.arg_len, p.args, NULL);
     }
 
+    // DBC: After the for-loop that re-injects modules
+    if (eec.flags & EECORE_FLAG_DBC)
+        *GS_REG_BGCOLOR = GSCOLOR32(0, 255, 128);
+
     DPRINTF("New_Reset_Iop complete!\n");
+
+    // DBC: Before final return
+    if (eec.flags & EECORE_FLAG_DBC)
+        *GS_REG_BGCOLOR = COLOR_BLACK;
 
     return;
 }
