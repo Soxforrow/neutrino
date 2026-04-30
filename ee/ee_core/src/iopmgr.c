@@ -251,8 +251,20 @@ void New_Reset_Iop(const char *arg, int arglen)
 
     _iop_reboot_count++; // increment reboot counter to allow RPC clients to detect unbinding!
 
-    while (!SifIopSync()) {
-        ;
+    {
+        int sync_attempts = 0;
+        int sync_timeout = 100000000;  // ~few seconds on EE
+        while (!SifIopSync()) {
+            if (++sync_attempts > sync_timeout) {
+                // V12 fallback: IOP didn't sync, force a clean reset
+                if (eec.flags & EECORE_FLAG_DBC)
+                    *GS_REG_BGCOLOR = COLOR_RED;
+                Reset_Iop("", 0);
+                sync_attempts = 0;
+                sync_timeout = 10000000;  // smaller retry budget
+                // continue waiting
+            }
+        }
     }
 
     services_start();
