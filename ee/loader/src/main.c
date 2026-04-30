@@ -1182,6 +1182,15 @@ int main(int argc, char *argv[])
      * **********************************************************************
      */
 
+    // Fix for ps2sdk issue #425 / PR #426: call fileXioExit() before handing
+    // off to EE_CORE. fileXioInit() (called above) redirects newlib stdio
+    // function pointers to route through fileXio. After the IOP is reset by
+    // the game (post-IOPRP-load), fileXio is destroyed, and any subsequent
+    // stdio call hits stale pointers — causing "sce_fileio: unrecognized
+    // code ff" hangs especially on early V12 SCPH-7000x consoles where SIF
+    // timing is more sensitive. fileXioExit restores the original pointers.
+    fileXioExit();
+
     ExecPS2((void *)eh->entry, NULL, ee_core_argc, ee_core_argv);
 
     return 0;
