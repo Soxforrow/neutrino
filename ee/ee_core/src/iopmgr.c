@@ -366,14 +366,20 @@ void New_Reset_Iop2(const char *arg, int arglen, int eeload)
     }
 
     if (reboot3) {
-        // Reboot the IOP with neutrino modules and IOPRP
-        DPRINTF("%s: reboot3: IOP with neutrino modules and IOPRP\n", __FUNCTION__);
+        DPRINTF("%s: reboot3: IOP with neutrino modules and IOPRP (V12 fix: ignoring game args)\n", __FUNCTION__);
 #ifdef __EESIO_DEBUG
         print_iop_args(arglen, arg);
 #endif
         if (eec.flags & EECORE_FLAG_DBC)
             *GS_REG_BGCOLOR = COLOR_YELLOW;
-        New_Reset_Iop(arg, arglen);
+        // V12 FIX: ignore game's IOPRP args, use neutrino's IOPRP only
+        // The game's IOPRP triggers a hang on early V12 SCPH-7000x silicon
+        // when its UDNL command sequence interacts with neutrino's modules.
+        // Using neutrino's IOPRP (NULL, 0) keeps the IOP in a known good state.
+        // Game's custom modules (GTFSCDVD, RWA, etc.) still load via subsequent
+        // SifExecModuleBuffer calls.
+        (void)arg; (void)arglen;
+        New_Reset_Iop(NULL, 0);
         // The game will use the IOP for unknown purposes now
         iopstate = 3;
     }
