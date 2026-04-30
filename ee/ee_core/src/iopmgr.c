@@ -297,6 +297,7 @@ void New_Reset_Iop2(const char *arg, int arglen, int eeload)
             reboot2 = 1;
         }
     } else {
+        DPRINTF("agent-2 skip-reboot3: reboot3 forced to 0\n");
         int reboot_mode = eec.iop_rm[1];
         if (reboot_mode == 1) {
             reboot3 = 1;
@@ -312,6 +313,7 @@ void New_Reset_Iop2(const char *arg, int arglen, int eeload)
             reboot2 = 1;
             reboot3 = 1;
         }
+        reboot3 = 0;
     }
 
     // Ignore duplicate IOP resets
