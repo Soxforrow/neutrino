@@ -234,22 +234,28 @@ void New_Reset_Iop(const char *arg, int arglen)
     if (udnl_irx != NULL) {
         // Load custom UDNL
         _SifExecModuleBuffer(udnl_irx, size_udnl_irx, udnl_cmdlen, udnl_cmd, NULL, 1);
+
+        DIntr();
+        ee_kmode_enter();
+        Old_SifSetReg(SIF_REG_SMFLAG, SIF_STAT_SIFINIT);
+        Old_SifSetReg(SIF_REG_SMFLAG, SIF_STAT_CMDINIT);
+        Old_SifSetReg(SIF_SYSREG_RPCINIT, 0);
+        Old_SifSetReg(SIF_SYSREG_SUBADDR, (int)NULL);
+        ee_kmode_exit();
+        EIntr();
+
+        _iop_reboot_count++; // increment reboot counter to allow RPC clients to detect unbinding!
     }
     else {
-        // Load system UDNL
-        _SifLoadModule(udnl_mod, udnl_cmdlen, udnl_cmd, NULL, LF_F_MOD_LOAD, 1);
+        // Use standard ps2sdk SifIopReset for compatibility with V12 (SCPH-70012) consoles.
+        // SifIopReset is known to work reliably across console revisions where the
+        // previous _SifLoadModule(udnl_mod, ...) approach hangs on V12.
+        // imgdrv has already been loaded above and patched to point at the neutrino IOPRP,
+        // so "rom0:UDNL img0:" tells UDNL to merge our IOPRP image when rebooting.
+        // SifIopReset internally handles SIF register state setup and increments
+        // _iop_reboot_count to notify RPC clients of unbinding.
+        while (!SifIopReset("rom0:UDNL img0:", 0)) {}
     }
-
-    DIntr();
-    ee_kmode_enter();
-    Old_SifSetReg(SIF_REG_SMFLAG, SIF_STAT_SIFINIT);
-    Old_SifSetReg(SIF_REG_SMFLAG, SIF_STAT_CMDINIT);
-    Old_SifSetReg(SIF_SYSREG_RPCINIT, 0);
-    Old_SifSetReg(SIF_SYSREG_SUBADDR, (int)NULL);
-    ee_kmode_exit();
-    EIntr();
-
-    _iop_reboot_count++; // increment reboot counter to allow RPC clients to detect unbinding!
 
     while (!SifIopSync()) {
         ;
