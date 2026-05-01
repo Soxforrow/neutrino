@@ -34,8 +34,20 @@ int _SifExecModuleBuffer(const void *ptr, u32 size, u32 arg_len, const char *arg
 void services_start()
 {
     DPRINTF("Starting services...\n");
+
+    // DBC: Before SifInitRpc
+    if (eec.flags & EECORE_FLAG_DBC)
+        *GS_REG_BGCOLOR = GSCOLOR32(0, 255, 255);
     SifInitRpc(0);
+
+    // DBC: Before SifInitIopHeap
+    if (eec.flags & EECORE_FLAG_DBC)
+        *GS_REG_BGCOLOR = GSCOLOR32(255, 255, 255);
     SifInitIopHeap();
+
+    // DBC: Before SifLoadFileInit
+    if (eec.flags & EECORE_FLAG_DBC)
+        *GS_REG_BGCOLOR = GSCOLOR32(255, 0, 255);
     SifLoadFileInit();
 }
 
