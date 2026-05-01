@@ -29,6 +29,7 @@ static int (*Old_SifGetReg)(u32 register_num);
 u32 (*Old_SifSetDma)(SifDmaTransfer_t *sdd, s32 len);
 
 int _SifExecModuleBuffer(const void *ptr, u32 size, u32 arg_len, const char *args, int *mod_res, int dontwait);
+int _SifLoadModule(const char *path, int arg_len, const char *args, int *modres, int fno, int dontwait);
 
 //---------------------------------------------------------------------------
 void services_start()
@@ -380,6 +381,55 @@ void New_Reset_Iop2(const char *arg, int arglen, int eeload)
         // SifExecModuleBuffer calls.
         (void)arg; (void)arglen;
         New_Reset_Iop(NULL, 0);
+
+        // agent-J: PRE-LOAD game's expected IOP modules from disc
+        //
+        // Black (SLUS_213.76) hangs at sector 7609000 in pure CPU code because
+        // the game expects its custom IOP modules to be loaded after the reset.
+        // Since we used neutrino's IOPRP (V12 fix), the game's modules from the
+        // disc IOPRP are NOT included. We must explicitly load them now via
+        // SifLoadModule using the cdrom0:\IOP\*.IRX paths so cdvdfsv/cdvdman_emu
+        // handles the file IO.
+        //
+        // Errors are tolerated (skip missing files, log but continue) so this
+        // does not break compatibility with games that don't have these modules.
+        {
+            static const char * const iop_preload_modules[] = {
+                "cdrom0:\\IOP\\SIO2MAN.IRX;1",
+                "cdrom0:\\IOP\\SIO2D.IRX;1",
+                "cdrom0:\\IOP\\LIBSD.IRX;1",
+                "cdrom0:\\IOP\\DBCMAN.IRX;1",
+                "cdrom0:\\IOP\\DS2O.IRX;1",
+                "cdrom0:\\IOP\\DSPROUTE.IRX;1",
+                "cdrom0:\\IOP\\MC2_D.IRX;1",
+                "cdrom0:\\IOP\\RWA.IRX;1",
+                "cdrom0:\\IOP\\GTFSCDVD.IRX;1",
+                NULL,
+            };
+            int idx;
+            int rc;
+
+            DPRINTF("agent-J: preloading game IOP modules from cdrom0:\\IOP\\*.IRX\n");
+            for (idx = 0; iop_preload_modules[idx] != NULL; idx++) {
+                if (eec.flags & EECORE_FLAG_DBC)
+                    *GS_REG_BGCOLOR = COLOR_BLUE;
+                DPRINTF("agent-J: load %s\n", iop_preload_modules[idx]);
+                // Use _SifLoadModule (in-tree) which handles RPC binding refresh.
+                // dontwait=0 so we wait for completion; LF_F_MOD_LOAD = standard load.
+                rc = _SifLoadModule(iop_preload_modules[idx], 0, NULL, NULL,
+                                    LF_F_MOD_LOAD, 0);
+                if (rc < 0) {
+                    DPRINTF("agent-J:  -> failed rc=%d (skipping)\n", rc);
+                    // Tolerate missing files / load failures — keep going so a
+                    // game without these exact modules still boots.
+                } else {
+                    DPRINTF("agent-J:  -> ok id=%d\n", rc);
+                }
+            }
+            if (eec.flags & EECORE_FLAG_DBC)
+                *GS_REG_BGCOLOR = COLOR_YELLOW;
+        }
+
         // The game will use the IOP for unknown purposes now
         iopstate = 3;
     }
