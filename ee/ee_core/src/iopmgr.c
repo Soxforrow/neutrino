@@ -8,7 +8,6 @@
 #include <iopheap.h>
 #include <sbv_patches.h>
 #include <syscallnr.h>
-#include <libcdvd.h>
 
 // Neutrino
 #include "ee_debug.h"
@@ -116,18 +115,14 @@ int iopmgr_preload_game_modules(void)
 
     PPRINTF("preload: begin (services_start already called by New_Reset_Iop)\n");
 
-    // agent-K3: Initialize EE-side CDVD layer. SCECdINoD = no disc detect (we
-    // assume disc is already present since we just booted from it). This
-    // primes the EE-side cdvd helper state so subsequent sceCdSync() polls
-    // make sense.
-    PPRINTF("preload: sceCdInit(SCECdINoD)...\n");
-    sceCdInit(SCECdINoD);
-    PPRINTF("preload: sceCdInit done\n");
-
     // agent-K3: Wait for IOP to finish syncing post-reboot. SifIopSync()
     // returns non-zero when the IOP is ready to accept SIF traffic. This
     // protects against a race where ee_core's preloader tries to talk to
     // cdvdfsv before the IOP-side RPC server has actually bound.
+    //
+    // We use SIF primitives only — libcdvd's sceCdInit/sceCdSync would be
+    // ideal but it pulls in newlib syscall stubs that the freestanding
+    // ee_core cannot satisfy at link time.
     PPRINTF("preload: waiting for SifIopSync...\n");
     for (i = 0; i < 100; i++) {
         if (SifIopSync()) {
@@ -140,15 +135,13 @@ int iopmgr_preload_game_modules(void)
     if (i == 100)
         PPRINTF("preload: SifIopSync TIMEOUT after 100 iters - continuing anyway\n");
 
-    // agent-K3: Drain any pending CDVD I/O that may be lingering from boot.
-    PPRINTF("preload: sceCdSync(0)...\n");
-    sceCdSync(0);
-    PPRINTF("preload: sceCdSync done\n");
-
     // agent-K3: Explicit grace delay so IOP modules (cdvdfsv, LOADFILE, etc.)
     // have time to finish binding their RPC servers. The IOP boot sequence
     // is asynchronous: SifIopSync only confirms the kernel is up, not that
-    // every module has finished its init thread.
+    // every module has finished its init thread. ~10M iters of a -O0 volatile
+    // loop on the EE is on the order of tens of milliseconds — enough for
+    // cdvdfsv's init thread to register its RPC servers before our first
+    // LOADFILE request lands.
     PPRINTF("preload: grace delay (10M iters)...\n");
     for (j = 0; j < 10000000; j++) ;
     PPRINTF("preload: grace delay done\n");
