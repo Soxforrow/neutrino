@@ -107,6 +107,10 @@ int iopmgr_preload_game_modules(void)
     int failed = 0;
     int rc;
 
+    // _print needs InitDebug() to enable SIO output. It's idempotent, so calling
+    // it every time we run is safe.
+    PPINIT();
+
     PPRINTF("preload: begin (services_start already called by New_Reset_Iop)\n");
 
     // Make sure LOADFILE RPC is bound. SifLoadFileInit() is called from
