@@ -154,6 +154,7 @@ MODE9 = {name = "Compat MODE9: NOP"}
 "SLPM_656.32" = {name = "Virtua Fighter Cyber Generation: JSNY", eecore.mod_base = 0x01fc7000}
 "SCES_503.60" = {name = "Twisted Metal Black Online", 			 eecore.mod_base = 0xA7000}
 "SCUS_971.96" = {name = "Twisted Metal Black Online",            eecore.mod_base = 0xA7000}
+"SLUS_213.76" = {name = "Black",                                 depends = ["p-black"]}
 "SLES_549.45" = {name = "DragonBall Z Budokai Tenkaichi 3",      cdvdman.fs_sectors = 64} # Optimization
 "SLUS_202.30" = {name = "Max Payne",                             eecore.irm = [2, 2, 1]}
 "SLES_503.25" = {name = "Max Payne",                             eecore.irm = [2, 2, 1]}

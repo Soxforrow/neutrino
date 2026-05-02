@@ -1,0 +1,15 @@
+# Name of loaded config, to show to user
+name = "Patch for Black (RenderWare extended FILEIO/IOPMEM RPC stub)"
+
+# Black (SLUS_213.76) makes SIF RPC calls to FILEIO (0x80000001) and
+# IOPMEM (0x80000002) with extended function numbers (0xff and 4)
+# that Sony's stock fileio/iopmem modules don't recognize.
+#
+# This patch hooks sifcmd::sceSifRegisterRpc, wraps the registered
+# callbacks for those two server-IDs, and silently returns success
+# for any unrecognized fno - preventing the IOP-side RPC reject
+# that otherwise hangs the game.
+[[module]]
+file = "p_black.irx"
+load_order = 31
+env = ["EE"]

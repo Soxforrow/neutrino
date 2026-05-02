@@ -20,6 +20,7 @@ clean:
 	$(MAKE) -C iop/patch_freemem clean
 	$(MAKE) -C iop/patch_membo   clean
 	$(MAKE) -C iop/patch_rc_uya  clean
+	$(MAKE) -C iop/p_black       clean
 	$(MAKE) -C iop/smap          clean
 	$(MAKE) -C iop/ministack     clean
 	$(MAKE) -C iop/udpbd         clean
@@ -49,6 +50,7 @@ all:
 	$(MAKE) -C iop/patch_freemem all DEBUG=$(IOPCORE_DEBUG)
 	$(MAKE) -C iop/patch_membo   all DEBUG=$(IOPCORE_DEBUG)
 	$(MAKE) -C iop/patch_rc_uya  all DEBUG=$(IOPCORE_DEBUG)
+	$(MAKE) -C iop/p_black       all DEBUG=$(IOPCORE_DEBUG)
 	$(MAKE) -C iop/smap          all DEBUG=$(IOPCORE_DEBUG)
 	$(MAKE) -C iop/ministack     all DEBUG=$(IOPCORE_DEBUG)
 	$(MAKE) -C iop/udpbd         all DEBUG=$(IOPCORE_DEBUG)
@@ -78,6 +80,7 @@ copy:
 	cp iop/patch_freemem/irx/patch_freemem.irx ee/loader/modules
 	cp iop/patch_membo/irx/patch_membo.irx     ee/loader/modules
 	cp iop/patch_rc_uya/irx/patch_rc_uya.irx   ee/loader/modules
+	cp iop/p_black/irx/p_black.irx             ee/loader/modules
 	cp iop/udpbd/irx/udpbd.irx                 ee/loader/modules
 	cp iop/smap/irx/smap.irx                   ee/loader/modules
 	cp iop/ministack/irx/ministack.irx         ee/loader/modules
