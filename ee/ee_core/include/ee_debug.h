@@ -40,6 +40,9 @@
 #define COLOR_TEAL     GSCOLOR32(  0, 128, 128)
 #define COLOR_PURPLE   GSCOLOR32(128,   0, 128) // IOP reboot errors
 #define COLOR_OLIVE    GSCOLOR32(128, 128,   0) // GSM errors
+// Custom for module preloader
+#define COLOR_ORANGE   GSCOLOR32(255, 165,   0) // Before game IOP module preload
+// COLOR_GREEN reused after preload
 
 // Colors of function error codes
 #define COLOR_FUNC_IOPREBOOT COLOR_PURPLE

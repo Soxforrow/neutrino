@@ -29,6 +29,132 @@ static int (*Old_SifGetReg)(u32 register_num);
 u32 (*Old_SifSetDma)(SifDmaTransfer_t *sdd, s32 len);
 
 int _SifExecModuleBuffer(const void *ptr, u32 size, u32 arg_len, const char *args, int *mod_res, int dontwait);
+int _SifLoadModule(const char *path, int arg_len, const char *args, int *modres, int fno, int dontwait);
+
+//---------------------------------------------------------------------------
+// agent-K: Preload game's IOP modules after IOP reset.
+//
+// When the V12 fix is active (or any time we use neutrino's IOPRP instead of
+// the game's IOPRP), the game's custom IOP modules embedded in its IOPRPxxx.IMG
+// (typically cdrom0:\IOP\IOPRP300.IMG) never get auto-loaded by UDNL.
+//
+// Black (SLUS_213.76) hangs at sector 7609000 because GTFSCDVD/RWA/MC2_D and
+// related custom modules are never loaded. The game then DMAs RPC packets
+// expecting those servers to respond, and waits forever in pure CPU code.
+//
+// Approach (Option 2 of the plan):
+//   1. Walk a list of expected IOP module IRX files on cdrom0:\IOP\ that the
+//      game's IOPRP would have included, skipping stock IOP modules.
+//   2. For each module, call _SifLoadModule (LF_F_MOD_LOAD) which goes through
+//      cdvdfsv RPC to read the IRX file from disc into IOP memory and start it.
+//   3. Tolerate failures (missing file = fine) so games without these modules
+//      still boot.
+//
+// IDEAL (future): parse cdrom0:\IOP\IOPRP300.IMG ROMDIR ourselves and call
+// SifExecModuleBuffer for each non-stock module - that auto-discovers the list
+// directly from the game's IOPRP, no per-game hardcoding. The current
+// implementation hard-codes the modules Black needs (which also covers
+// SOTC and many other Sony first-party games that share these modules).
+//
+// Skip-list: stock IOP modules that are already loaded by neutrino's IOPRP.
+// Re-loading them would conflict with the running instances.
+//   RESET, ROMDIR, EXTINFO, SYSMEM, LOADCORE, SIFCMD, SIFMAN, THREADMAN,
+//   IOMAN, MODLOAD, FILEIO, CDVDMAN, CDVDFSV, LOADFILE, TIMEMANI,
+//   ROMDRV, EESYNC, SYSCLIB, STDIO
+//---------------------------------------------------------------------------
+static int iopmgr_is_stock_module(const char *name)
+{
+    static const char * const skip_list[] = {
+        "RESET",   "ROMDIR",  "EXTINFO",  "SYSMEM",    "LOADCORE",
+        "SIFCMD",  "SIFMAN",  "THREADMAN","IOMAN",     "MODLOAD",
+        "FILEIO",  "CDVDMAN", "CDVDFSV",  "LOADFILE",  "TIMEMANI",
+        "ROMDRV",  "EESYNC",  "SYSCLIB",  "STDIO",     NULL,
+    };
+    int i;
+    for (i = 0; skip_list[i] != NULL; i++) {
+        // Case-insensitive compare across length of skip entry; require name
+        // to terminate (or be followed by '.' for "MODNAME.IRX") for a match.
+        const char *a = skip_list[i];
+        const char *b = name;
+        while (*a && *b) {
+            char ca = (*a >= 'a' && *a <= 'z') ? (*a - 'a' + 'A') : *a;
+            char cb = (*b >= 'a' && *b <= 'z') ? (*b - 'a' + 'A') : *b;
+            if (ca != cb) break;
+            a++; b++;
+        }
+        if (*a == '\0' && (*b == '\0' || *b == '.'))
+            return 1;
+    }
+    return 0;
+}
+
+// Preload modules from the game's IOPRP, identified by IRX path on cdrom0:\IOP\.
+// Returns count of successfully loaded modules.
+//
+// The list below covers Black (SLUS_213.76) and is generally compatible with
+// other Sony first-party games of the era. Modules not on the disc are
+// silently skipped (rc < 0 from _SifLoadModule).
+int iopmgr_preload_game_modules(const char *iso_path)
+{
+    static const char * const game_irx_list[] = {
+        // Generic Sony I/O backbone modules (loaded first)
+        "cdrom0:\\IOP\\SIO2MAN.IRX;1",
+        "cdrom0:\\IOP\\PADMAN.IRX;1",
+        "cdrom0:\\IOP\\MCMAN.IRX;1",
+        "cdrom0:\\IOP\\MCSERV.IRX;1",
+        "cdrom0:\\IOP\\LIBSD.IRX;1",
+        "cdrom0:\\IOP\\SDRDRV.IRX;1",
+        // Black-specific I/O modules
+        "cdrom0:\\IOP\\SIO2D.IRX;1",
+        "cdrom0:\\IOP\\DBCMAN.IRX;1",
+        "cdrom0:\\IOP\\DS2O.IRX;1",
+        "cdrom0:\\IOP\\DSPROUTE.IRX;1",
+        // Black-specific subsystem modules
+        "cdrom0:\\IOP\\MC2_D.IRX;1",
+        "cdrom0:\\IOP\\RWA.IRX;1",
+        "cdrom0:\\IOP\\GTFSCDVD.IRX;1",
+        NULL,
+    };
+    int idx;
+    int loaded = 0;
+    int rc;
+
+    (void)iso_path; // unused - we always read from cdrom0:
+
+    DPRINTF("agent-K: iopmgr_preload_game_modules begin\n");
+
+    for (idx = 0; game_irx_list[idx] != NULL; idx++) {
+        const char *path = game_irx_list[idx];
+
+        // Extract bare module name for skip-list check.
+        const char *bare = path;
+        const char *p;
+        for (p = path; *p; p++) {
+            if (*p == '\\' || *p == '/' || *p == ':')
+                bare = p + 1;
+        }
+        if (iopmgr_is_stock_module(bare)) {
+            DPRINTF("agent-K:  skip stock %s\n", bare);
+            continue;
+        }
+
+        DPRINTF("agent-K:  load %s\n", path);
+
+        // Use synchronous load (dontwait=0). LF_F_MOD_LOAD = 0x06 standard load.
+        rc = _SifLoadModule(path, 0, NULL, NULL, LF_F_MOD_LOAD, 0);
+        if (rc < 0) {
+            DPRINTF("agent-K:   -> failed rc=%d (skipping)\n", rc);
+            // Tolerate failures - missing file or load error.
+            // Continue with remaining modules.
+        } else {
+            DPRINTF("agent-K:   -> ok id=%d\n", rc);
+            loaded++;
+        }
+    }
+
+    DPRINTF("agent-K: iopmgr_preload_game_modules done (%d loaded)\n", loaded);
+    return loaded;
+}
 
 //---------------------------------------------------------------------------
 void services_start()
@@ -380,6 +506,22 @@ void New_Reset_Iop2(const char *arg, int arglen, int eeload)
         // SifExecModuleBuffer calls.
         (void)arg; (void)arglen;
         New_Reset_Iop(NULL, 0);
+
+        // agent-K: PRE-LOAD game's expected IOP modules from disc
+        //
+        // Since we used neutrino's IOPRP (V12 fix), the game's modules from the
+        // disc IOPRP are NOT auto-loaded by UDNL. Walk a list of expected IRX
+        // files on cdrom0:\IOP\, skipping stock modules, and load each via
+        // _SifLoadModule. cdvdfsv (still alive after this reset) handles the
+        // file IO; cdvdman_emu does the disc reading.
+        //
+        // BG color flow (visible with -dbc): ORANGE before preload, GREEN after.
+        if (eec.flags & EECORE_FLAG_DBC)
+            *GS_REG_BGCOLOR = COLOR_ORANGE;
+        iopmgr_preload_game_modules("cdrom0:\\IOP\\IOPRP300.IMG;1");
+        if (eec.flags & EECORE_FLAG_DBC)
+            *GS_REG_BGCOLOR = COLOR_GREEN;
+
         // The game will use the IOP for unknown purposes now
         iopstate = 3;
     }
