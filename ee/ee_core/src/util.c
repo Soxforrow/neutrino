@@ -354,8 +354,29 @@ void delay(int count)
     }
 }
 
+// agent-N3: Make each IOP-reboot error a UNIQUE solid color so the user
+// can tell at a glance which BGERROR fired without counting flashes.
+//   IOPREBOOT count=2 (module_checksum)    -> SOLID PURPLE (unchanged)
+//   IOPREBOOT count=3 (set_reg_hook)       -> SOLID RED
+//   IOPREBOOT count=4 (get_reg_hook)       -> SOLID GREEN
+//   IOPREBOOT count=5 (reserved/new)       -> SOLID BLUE
+// All other (GSM etc.) keep the original flashing behavior so existing
+// debug habits still work for those.
 void BGERROR(u32 func_color, int count) {
     int i;
+
+    // Distinct-color shortcut for the three IOP-reboot error codes.
+    if (func_color == COLOR_FUNC_IOPREBOOT) {
+        u32 solid = func_color;
+        if      (count == 2) solid = COLOR_PURPLE; // checksum
+        else if (count == 3) solid = COLOR_RED;    // set_reg_hook != 0
+        else if (count == 4) solid = COLOR_GREEN;  // get_reg_hook != 0
+        else if (count == 5) solid = COLOR_BLUE;   // future use
+        while (1) {
+            *GS_REG_BGCOLOR = solid;
+        }
+    }
+
     while (1) {
         *GS_REG_BGCOLOR = func_color;
         delay(500);
