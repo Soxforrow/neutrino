@@ -340,9 +340,11 @@ static int setup_dvd_iso(const char *path, off_t *out_iso_size,
 /*
  * Allocate and populate the IRX module table in the EE module storage area.
  * Patches IOPRP.img and installs all EE-env modules.
+ * `preload_reserve` reserves additional irxptr_t slots at the end of the table
+ * for game IOP modules that will be added later by preload_game_iop_modules().
  * Returns a pointer to the end of the written module data, or NULL on error.
  */
-static uint8_t *build_irx_table(int dvd_active)
+static uint8_t *build_irx_table(int dvd_active, int preload_reserve)
 {
     irxtab_t  *irxtable;
     irxptr_t  *irxptr_tab;
@@ -362,10 +364,13 @@ static uint8_t *build_irx_table(int dvd_active)
     if (drv.fake.count > 0)
         modcount++; // FAKEMOD
 
+    // Reserve extra slots for preloaded game IOP modules (filled in later)
+    int total_slots = modcount + preload_reserve;
+
     printf("modstart %p\n", sys.eecore.ModStorageStart);
     irxtable   = (irxtab_t *)sys.eecore.ModStorageStart;
     irxptr_tab = (irxptr_t *)((unsigned char *)irxtable + sizeof(irxtab_t));
-    irxptr     = (uint8_t *)((((unsigned int)irxptr_tab + sizeof(irxptr_t) * modcount) + 0xF) & ~0xF);
+    irxptr     = (uint8_t *)((((unsigned int)irxptr_tab + sizeof(irxptr_t) * total_slots) + 0xF) & ~0xF);
 
     irxtable->modules = irxptr_tab;
     irxtable->count   = 0;
@@ -407,6 +412,161 @@ static uint8_t *build_irx_table(int dvd_active)
     }
 
     return irxptr;
+}
+
+//---------------------------------------------------------------------------
+// agent-N: Buffer-based IOP module preloader.
+//
+// Black (SLUS_213.76) and similar Sony first-party titles ship with
+// game-specific IOP modules under the IOP/ directory of the disc image
+// (e.g. IOP\GTFSCDVD.IRX;1, IOP\RWA.IRX;1, IOP\MC2_D.IRX;1, etc.).
+// The game's IOPRP normally loads these via UDNL, but the V12 fix replaces
+// the game's IOPRP with neutrino's, so those custom modules are missing
+// after the IOP reset, causing hangs/timeouts.
+//
+// agent-K2 tried to load them post-reset by calling _SifLoadModule against
+// cdrom0:\IOP\*.IRX, but on V12 silicon the IOP-side LOADFILE module isn't
+// reliably bound when that fires, producing UDPFS recv timeouts.
+//
+// agent-N's approach: read each IRX file into EE memory BEFORE the IOP
+// reset, while the BIOS-loaded IOP services are fully functional. We append
+// each buffer to the irxtable that EE_CORE walks after the IOP reset
+// completes - the existing loop in New_Reset_Iop() at iopmgr.c:267 already
+// SifExecModuleBuffer's modules[3..count] for us, so no EE_CORE changes are
+// needed.
+//
+// Currently we only support extracting from an ISO file (sDVDFile != NULL).
+// When booting directly from a real disc with cdrom: this is a no-op - that
+// case can be added later if it shows up in practice.
+//---------------------------------------------------------------------------
+
+// Per-game IRX preload list. Each entry names the file inside cdrom0:\IOP\.
+// Files that are not present in a given game's ISO are skipped silently.
+struct preload_entry {
+    const char *iso_dir;       // ISO9660 directory name, e.g. "IOP"
+    const char *iso_filename;  // ISO9660 file name with version, e.g. "GTFSCDVD.IRX;1"
+};
+
+// List used for Black (SLUS_213.76) and shared with similar titles. Files
+// missing from the ISO are tolerated so this can be reused safely for other
+// games.
+static const struct preload_entry black_preload_list[] = {
+    // Sony-shared I/O modules (loaded first by the original IOPRP)
+    { "IOP", "SIO2MAN.IRX;1"  },
+    { "IOP", "SIO2D.IRX;1"    },
+    { "IOP", "DBCMAN.IRX;1"   },
+    { "IOP", "DS2O.IRX;1"     },
+    { "IOP", "DSPROUTE.IRX;1" },
+    { "IOP", "LIBSD.IRX;1"    },
+    { "IOP", "MC2_D.IRX;1"    },
+    // Black-specific subsystem modules
+    { "IOP", "RWA.IRX;1"      },
+    { "IOP", "GTFSCDVD.IRX;1" },
+};
+#define BLACK_PRELOAD_COUNT ((int)(sizeof(black_preload_list) / sizeof(black_preload_list[0])))
+
+// Returns the preload list for the given GameID, or NULL if no preload is
+// configured for this game. Output count is populated when non-NULL is
+// returned.
+static const struct preload_entry *get_preload_list_for_game(const char *gameid, int *out_count)
+{
+    if (gameid == NULL || gameid[0] == '\0')
+        return NULL;
+
+    // Black (NTSC-U)
+    if (strncmp(gameid, "SLUS_213.76", 11) == 0) {
+        *out_count = BLACK_PRELOAD_COUNT;
+        return black_preload_list;
+    }
+    // Black (PAL)
+    if (strncmp(gameid, "SLES_537.32", 11) == 0) {
+        *out_count = BLACK_PRELOAD_COUNT;
+        return black_preload_list;
+    }
+
+    *out_count = 0;
+    return NULL;
+}
+
+/*
+ * Read the configured per-game IOP modules from inside the ISO at
+ * sDVDFile and append them to the irxtable so EE_CORE will SifExecModuleBuffer
+ * each one after the IOP reset completes.
+ *
+ * `mem_end` is the current end-of-data pointer (returned by build_irx_table)
+ * that we extend as we copy each module into the EE storage area.
+ *
+ * Returns the new end-of-data pointer. On any non-fatal error (file missing,
+ * read error, list not configured for this game) returns mem_end unchanged.
+ */
+static uint8_t *preload_game_iop_modules(const char *sDVDFile, const char *gameid, uint8_t *mem_end)
+{
+    if (sDVDFile == NULL) {
+        printf("agent-N preload: skipped (no ISO file - direct disc boot)\n");
+        return mem_end;
+    }
+
+    int list_count = 0;
+    const struct preload_entry *list = get_preload_list_for_game(gameid, &list_count);
+    if (list == NULL || list_count == 0) {
+        printf("agent-N preload: no preload list for %s\n", gameid);
+        return mem_end;
+    }
+
+    irxtab_t *irxtable = (irxtab_t *)sys.eecore.ModStorageStart;
+    int loaded = 0;
+    int failed = 0;
+
+    printf("agent-N preload: %s, %d candidate module(s)\n", gameid, list_count);
+
+    // Upper bound for ModStorage. The cleared "free" region ends at 0x100000.
+    // Going past that risks colliding with EELOAD/user code, so we hard-cap
+    // here rather than silently corrupting memory.
+    const uint32_t MOD_STORAGE_LIMIT = 0x00100000;
+
+    for (int i = 0; i < list_count; i++) {
+        const struct preload_entry *e = &list[i];
+        void *buf = NULL;
+        uint32_t size = 0;
+
+        printf("agent-N preload: trying %s/%s\n", e->iso_dir, e->iso_filename);
+
+        int rc = read_file_from_iso(sDVDFile, e->iso_dir, e->iso_filename, &buf, &size);
+        if (rc != 0) {
+            printf("agent-N preload: skip %s/%s rc=%d\n", e->iso_dir, e->iso_filename, rc);
+            failed++;
+            continue;
+        }
+
+        if ((uint32_t)mem_end + size + 0xF >= MOD_STORAGE_LIMIT) {
+            printf("agent-N preload: STOP %s would overflow ModStorage (end=0x%p+0x%x > limit 0x%x)\n",
+                   e->iso_filename, mem_end, size, MOD_STORAGE_LIMIT);
+            free(buf);
+            failed++;
+            break;
+        }
+
+        // Copy into EE storage so it survives ExecPS2's user-memory clear and
+        // is reachable by EE_CORE at the irxptr_t we hand it.
+        memcpy(mem_end, buf, size);
+        free(buf);
+
+        irxptr_t *slot = &irxtable->modules[irxtable->count];
+        slot->ptr     = mem_end;
+        slot->size    = size;
+        slot->arg_len = 0;
+        slot->args    = NULL;
+
+        printf("agent-N preload: OK %s size=%u at 0x%p\n", e->iso_filename, size, slot->ptr);
+
+        mem_end = (uint8_t *)((((uint32_t)mem_end + size) + 0xF) & ~0xF);
+        irxtable->count++;
+        loaded++;
+    }
+
+    printf("agent-N preload: done loaded=%d failed=%d total_modules=%d\n",
+           loaded, failed, irxtable->count);
+    return mem_end;
 }
 
 /*
@@ -1031,11 +1191,26 @@ int main(int argc, char *argv[])
 #pragma GCC diagnostic pop
 
     /*
+     * Determine how many extra irxtable slots we need to reserve for the
+     * agent-N buffer-based IOP module preloader. Has to happen BEFORE
+     * build_irx_table so the table can be sized correctly.
+     */
+    int preload_count = 0;
+    (void)get_preload_list_for_game(sGameID, &preload_count);
+
+    /*
      * Build the IRX module table in EE memory
      */
-    uint8_t *irxptr_end = build_irx_table(sDVDFile != NULL);
+    uint8_t *irxptr_end = build_irx_table(sDVDFile != NULL, preload_count);
     if (irxptr_end == NULL)
         return -1;
+
+    /*
+     * agent-N: pre-read game IOP/*.IRX files from the ISO into EE memory so
+     * EE_CORE can SifExecModuleBuffer them after the IOP reset, without
+     * needing the IOP-side filesystem RPC to be ready post-reset.
+     */
+    irxptr_end = preload_game_iop_modules(sDVDFile, sGameID, irxptr_end);
 
     //
     // Set EE_CORE settings before loading into place
