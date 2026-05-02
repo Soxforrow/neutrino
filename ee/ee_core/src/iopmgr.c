@@ -8,6 +8,7 @@
 #include <iopheap.h>
 #include <sbv_patches.h>
 #include <syscallnr.h>
+#include <libcdvd.h>
 
 // Neutrino
 #include "ee_debug.h"
@@ -106,6 +107,8 @@ int iopmgr_preload_game_modules(void)
     int loaded = 0;
     int failed = 0;
     int rc;
+    int i;
+    volatile int j;
 
     // _print needs InitDebug() to enable SIO output. It's idempotent, so calling
     // it every time we run is safe.
@@ -113,17 +116,57 @@ int iopmgr_preload_game_modules(void)
 
     PPRINTF("preload: begin (services_start already called by New_Reset_Iop)\n");
 
+    // agent-K3: Initialize EE-side CDVD layer. SCECdINoD = no disc detect (we
+    // assume disc is already present since we just booted from it). This
+    // primes the EE-side cdvd helper state so subsequent sceCdSync() polls
+    // make sense.
+    PPRINTF("preload: sceCdInit(SCECdINoD)...\n");
+    sceCdInit(SCECdINoD);
+    PPRINTF("preload: sceCdInit done\n");
+
+    // agent-K3: Wait for IOP to finish syncing post-reboot. SifIopSync()
+    // returns non-zero when the IOP is ready to accept SIF traffic. This
+    // protects against a race where ee_core's preloader tries to talk to
+    // cdvdfsv before the IOP-side RPC server has actually bound.
+    PPRINTF("preload: waiting for SifIopSync...\n");
+    for (i = 0; i < 100; i++) {
+        if (SifIopSync()) {
+            PPRINTF("preload: SifIopSync OK (iter=%d)\n", i);
+            break;
+        }
+        // small delay between sync polls
+        for (j = 0; j < 100000; j++) ;
+    }
+    if (i == 100)
+        PPRINTF("preload: SifIopSync TIMEOUT after 100 iters - continuing anyway\n");
+
+    // agent-K3: Drain any pending CDVD I/O that may be lingering from boot.
+    PPRINTF("preload: sceCdSync(0)...\n");
+    sceCdSync(0);
+    PPRINTF("preload: sceCdSync done\n");
+
+    // agent-K3: Explicit grace delay so IOP modules (cdvdfsv, LOADFILE, etc.)
+    // have time to finish binding their RPC servers. The IOP boot sequence
+    // is asynchronous: SifIopSync only confirms the kernel is up, not that
+    // every module has finished its init thread.
+    PPRINTF("preload: grace delay (10M iters)...\n");
+    for (j = 0; j < 10000000; j++) ;
+    PPRINTF("preload: grace delay done\n");
+
     // Make sure LOADFILE RPC is bound. SifLoadFileInit() is called from
     // services_start(), but it's idempotent — calling again is safe and gives
     // us an early-failure signal if LOADFILE isn't actually up.
+    PPRINTF("preload: SifLoadFileInit...\n");
     rc = SifLoadFileInit();
     if (rc < 0) {
         PPRINTF("preload: SifLoadFileInit failed rc=%d - aborting\n", rc);
         return 0;
     }
+    PPRINTF("preload: SifLoadFileInit OK\n");
 
     for (idx = 0; game_irx_list[idx] != NULL; idx++) {
         const char *path = game_irx_list[idx];
+        int retries;
 
         // Extract bare module name for skip-list check.
         const char *bare = path;
@@ -137,13 +180,26 @@ int iopmgr_preload_game_modules(void)
             continue;
         }
 
-        PPRINTF("preload: trying %s\n", path);
+        // agent-K3: retry up to 3 times if the load fails. The first read
+        // after IOP reset is most prone to timeout, so subsequent retries
+        // tend to succeed once cdvdfsv warms up.
+        rc = -1;
+        for (retries = 0; retries < 3; retries++) {
+            PPRINTF("preload: trying %s (attempt %d/3)\n", path, retries + 1);
 
-        // Synchronous load (dontwait=0) so each module finishes before next.
-        // LF_F_MOD_LOAD = standard module load by path.
-        rc = _SifLoadModule(path, 0, NULL, NULL, LF_F_MOD_LOAD, 0);
+            // Synchronous load (dontwait=0) so each module finishes before next.
+            // LF_F_MOD_LOAD = standard module load by path.
+            rc = _SifLoadModule(path, 0, NULL, NULL, LF_F_MOD_LOAD, 0);
+            if (rc >= 0)
+                break;
+
+            PPRINTF("preload: attempt %d failed rc=%d, retrying\n", retries + 1, rc);
+            // wait between retries (~5M iters)
+            for (j = 0; j < 5000000; j++) ;
+        }
+
         if (rc < 0) {
-            PPRINTF("preload: FAILED %s rc=%d\n", path, rc);
+            PPRINTF("preload: FAILED %s rc=%d (after retries)\n", path, rc);
             failed++;
             // Tolerate failures - missing file or load error.
         } else {

@@ -46,7 +46,9 @@ EE_LIBS += -lpatches
 # agent-K2: -ldebug provides _print so the IOP-module preloader's diagnostics
 # are visible in ps2client output regardless of EESIO_DEBUG. -lc is already
 # implicit via libdebug for sprintf/snprintf used by _print.
-EE_LIBS += -ldebug -lc -lkernel -lgcc
+# agent-K3: -lcdvd provides sceCdInit/sceCdSync for the preloader's pre-flight
+# wait sequence (init -> SifIopSync -> sceCdSync -> grace delay -> module loads).
+EE_LIBS += -ldebug -lcdvd -lc -lkernel -lgcc
 
 $(EE_OBJS_DIR)%.o : $(EE_SRC_DIR)%.c
 	@mkdir -p $(EE_OBJS_DIR)
