@@ -539,8 +539,8 @@ static uint8_t *preload_game_iop_modules(const char *sDVDFile, const char *gamei
         }
 
         if ((uint32_t)mem_end + size + 0xF >= MOD_STORAGE_LIMIT) {
-            printf("agent-N preload: STOP %s would overflow ModStorage (end=0x%p+0x%x > limit 0x%x)\n",
-                   e->iso_filename, mem_end, size, MOD_STORAGE_LIMIT);
+            printf("agent-N preload: STOP %s would overflow ModStorage (end=0x%p+0x%lx > limit 0x%lx)\n",
+                   e->iso_filename, mem_end, (unsigned long)size, (unsigned long)MOD_STORAGE_LIMIT);
             free(buf);
             failed++;
             break;
@@ -557,7 +557,7 @@ static uint8_t *preload_game_iop_modules(const char *sDVDFile, const char *gamei
         slot->arg_len = 0;
         slot->args    = NULL;
 
-        printf("agent-N preload: OK %s size=%u at 0x%p\n", e->iso_filename, size, slot->ptr);
+        printf("agent-N preload: OK %s size=%lu at 0x%p\n", e->iso_filename, (unsigned long)size, slot->ptr);
 
         mem_end = (uint8_t *)((((uint32_t)mem_end + size) + 0xF) & ~0xF);
         irxtable->count++;
@@ -1206,7 +1206,7 @@ int main(int argc, char *argv[])
         return -1;
 
     /*
-     * agent-N: pre-read game IOP/*.IRX files from the ISO into EE memory so
+     * agent-N: pre-read game IOP IRX files from the ISO into EE memory so
      * EE_CORE can SifExecModuleBuffer them after the IOP reset, without
      * needing the IOP-side filesystem RPC to be ready post-reset.
      */
