@@ -524,6 +524,23 @@ static uint8_t *preload_game_iop_modules(const char *sDVDFile, const char *gamei
     // here rather than silently corrupting memory.
     const uint32_t MOD_STORAGE_LIMIT = 0x00100000;
 
+    // EE_CORE re-runs module_checksum() on every game-initiated IOP reset
+    // (iopmgr.c module_checksum()) over the first EEC_MOD_CHECKSUM_COUNT*4 KiB
+    // of ModStorage. If the game writes anywhere in BIOS RAM during normal
+    // execution (Black/Criterion engine titles do), our preloaded module
+    // buffers get corrupted and the checksum trips BGERROR(PURPLE, 2),
+    // halting the second IOP reset. To avoid this, bump mem_end past the
+    // checksum window so all preloaded modules live in non-checksummed
+    // memory. Neutrino's own modules (modules[1..count_before_preload])
+    // remain inside the checksum window as designed.
+    const uint32_t CHECKSUM_END = (uint32_t)sys.eecore.ModStorageStart
+                                + (EEC_MOD_CHECKSUM_COUNT * 4096);
+    if ((uint32_t)mem_end < CHECKSUM_END) {
+        printf("agent-N preload: bumping mem_end 0x%p -> 0x%lx (above checksum region)\n",
+               mem_end, (unsigned long)CHECKSUM_END);
+        mem_end = (uint8_t *)CHECKSUM_END;
+    }
+
     for (int i = 0; i < list_count; i++) {
         const struct preload_entry *e = &list[i];
         void *buf = NULL;
