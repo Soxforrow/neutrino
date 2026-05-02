@@ -43,7 +43,10 @@ EE_OBJS := $(EE_OBJS:%=$(EE_OBJS_DIR)%)
 EE_LDFLAGS = -nostartfiles -nostdlib -Tlinkfile -L$(PS2SDK)/ee/lib -s -Wl,-Map,$(MAPFILE) -Wl,-zmax-page-size=128 -Wl,--gc-sections
 EE_LIBS += -lpatches
 
-EE_LIBS += -lkernel -lgcc
+# agent-K2: -ldebug provides _print so the IOP-module preloader's diagnostics
+# are visible in ps2client output regardless of EESIO_DEBUG. -lc is already
+# implicit via libdebug for sprintf/snprintf used by _print.
+EE_LIBS += -ldebug -lc -lkernel -lgcc
 
 $(EE_OBJS_DIR)%.o : $(EE_SRC_DIR)%.c
 	@mkdir -p $(EE_OBJS_DIR)

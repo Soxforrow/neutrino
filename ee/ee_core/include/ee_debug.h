@@ -19,6 +19,14 @@
     } while (0)
 #endif
 
+// agent-K2: always-on print to SIO (visible in ps2client output regardless of
+// EESIO_DEBUG). Resolved by linking with -ldebug. Use sparingly: high call
+// volume during reboot will slow things down.
+extern int _print(const char *fmt, ...);
+#define PPRINTF(args...) _print(args)
+extern void InitDebug(void);
+#define PPINIT()          InitDebug()
+
 #define GSCOLOR32(R, G, B) ( \
     (u32)((R)&0x000000FF) <<  0 | \
     (u32)((G)&0x000000FF) <<  8 | \
@@ -40,6 +48,7 @@
 #define COLOR_TEAL     GSCOLOR32(  0, 128, 128)
 #define COLOR_PURPLE   GSCOLOR32(128,   0, 128) // IOP reboot errors
 #define COLOR_OLIVE    GSCOLOR32(128, 128,   0) // GSM errors
+#define COLOR_ORANGE   GSCOLOR32(255, 165,   0) // agent-K2: before IOP module preload
 
 // Colors of function error codes
 #define COLOR_FUNC_IOPREBOOT COLOR_PURPLE
