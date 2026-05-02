@@ -45,9 +45,9 @@ int _SifLoadModule(const char *path, int arg_len, const char *args, int *modres,
 // Implementation
 // --------------
 // We assume neutrino's IOPRP has loaded cdvdfsv (which it does), so we can use
-// the IOP-side LOADFILE service to read each .IRX from the game's cdrom0:\IOP\
-// directory. Many games keep loose .IRX copies in that folder for use by
-// LOADFILE; the previous agent-K confirmed this is the right path pattern.
+// the IOP-side LOADFILE service to read each .IRX from the game's
+// 'cdrom0:\IOP' directory. Many games keep loose .IRX copies in that folder
+// for use by LOADFILE; the previous agent-K confirmed this is the right path.
 //
 // We emit always-on prints (PPRINTF -> _print, requires -ldebug) so the disc
 // I/O activity is visible in ps2client output even on production builds.
@@ -81,7 +81,7 @@ static int iopmgr_is_stock_module(const char *name)
 
 int iopmgr_preload_game_modules(void)
 {
-    // Game-specific IOP modules expected on cdrom0:\IOP\.
+    // Game-specific IOP modules expected on cdrom0 IOP directory.
     // List covers Black (SLUS_213.76) and similar Sony first-party titles.
     static const char * const game_irx_list[] = {
         // Generic Sony I/O backbone modules (loaded first)
@@ -509,9 +509,9 @@ void New_Reset_Iop2(const char *arg, int arglen, int eeload)
 
         // agent-K2: now that neutrino's modules are running and cdvdfsv RPC is
         // bound by services_start() inside New_Reset_Iop, walk the game's
-        // expected IOP module list on cdrom0:\IOP\ and load each via LOADFILE.
-        // Without this, Black (SLUS_213.76) hangs because GTFSCDVD/RWA/MC2_D
-        // never get loaded after the V12 fix swaps in neutrino's IOPRP.
+        // expected IOP module list on the IOP directory of the disc and load
+        // each via LOADFILE. Without this, Black (SLUS_213.76) hangs because
+        // GTFSCDVD/RWA/MC2_D never load after V12 fix swaps in neutrino IOPRP.
         if (eec.flags & EECORE_FLAG_DBC)
             *GS_REG_BGCOLOR = COLOR_ORANGE;
         iopmgr_preload_game_modules();
