@@ -20,11 +20,9 @@
 #endif
 
 // agent-K2: always-on print to SIO (visible in ps2client output regardless of
-// EESIO_DEBUG). Resolved by linking with -ldebug. Use sparingly: high call
-// volume during reboot will slow things down.
-extern int _print(const char *fmt, ...);
+// EESIO_DEBUG). _print is declared by kernel.h and resolved by linking with
+// -ldebug. Use sparingly: high call volume during reboot will slow things down.
 #define PPRINTF(args...) _print(args)
-extern void InitDebug(void);
 #define PPINIT()          InitDebug()
 
 #define GSCOLOR32(R, G, B) ( \
