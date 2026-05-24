@@ -461,13 +461,17 @@ static const struct preload_entry black_preload_list[] = {
     { "IOP", "MC2_D.IRX;1"    },
     // Black-specific subsystem modules
     { "IOP", "RWA.IRX;1"      },
-    // agent-N15: GTFSCDVD re-enabled. The hang in slot-18 SifExecModuleBuffer
-    // was traced to GTFSCDVD._start() polling sceCdDiskReady() which was
-    // returning SCECdNotReady forever because cdvdman_emu's _start() never
-    // set cdvdman_cdinited=1 (only sceCdInit() did, but it's never called by
-    // anyone before GTFSCDVD's init). cdvdman_emu now auto-inits, so the
-    // poll returns SCECdComplete immediately. Should work now.
-    { "IOP", "GTFSCDVD.IRX;1" },
+    // agent-N16: GTFSCDVD disabled again. Even with N15's cdvdman_emu
+    // auto-init fix (so sceCdDiskReady returns Complete), GTFSCDVD's
+    // SifExecModuleBuffer still hangs at slot 18 (TV=DARK_GREEN). The
+    // hang isn't from polling NotReady - probably the worker thread that
+    // _start spawns blocks on a different cdvdman call or runs out of
+    // IOP memory (GTFSCDVD's bss is 29KB).
+    //
+    // With GTFSCDVD removed (and cdvdman_emu auto-init still in place),
+    // the game completed boot to TV=BLACK + 86 BREADs without trying to
+    // load GTFSCDVD itself. We'll proceed from that baseline.
+    // { "IOP", "GTFSCDVD.IRX;1" },
 };
 #define BLACK_PRELOAD_COUNT ((int)(sizeof(black_preload_list) / sizeof(black_preload_list[0])))
 
