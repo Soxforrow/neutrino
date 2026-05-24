@@ -460,7 +460,7 @@ static const struct preload_entry black_preload_list[] = {
     { "IOP", "LIBSD.IRX;1"    },
     { "IOP", "MC2_D.IRX;1"    },
     // Black-specific subsystem modules
-    { "IOP", "RWA.IRX;1"      },
+    // { "IOP", "RWA.IRX;1"      }, // removed - hangs in SifExecModuleBuffer slot 18
     // agent-N16: GTFSCDVD disabled again. Even with N15's cdvdman_emu
     // auto-init fix (so sceCdDiskReady returns Complete), GTFSCDVD's
     // SifExecModuleBuffer still hangs at slot 18 (TV=DARK_GREEN). The
