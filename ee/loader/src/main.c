@@ -519,10 +519,24 @@ static uint8_t *preload_game_iop_modules(const char *sDVDFile, const char *gamei
 
     printf("agent-N preload: %s, %d candidate module(s)\n", gameid, list_count);
 
-    // Upper bound for ModStorage. The cleared "free" region ends at 0x100000.
-    // Going past that risks colliding with EELOAD/user code, so we hard-cap
-    // here rather than silently corrupting memory.
-    const uint32_t MOD_STORAGE_LIMIT = 0x00100000;
+    // Upper bound for ModStorage.
+    //
+    // agent-N4: The previous hardcoded limit 0x00100000 assumed mod_base was
+    // in BIOS RAM (default 0x95000), where ModStorage ends at game_ram start
+    // (0x100000). When users configure a high mod_base (e.g. 0x01f80000 for
+    // Black to escape game-overwritten BIOS RAM), mem_end is far beyond
+    // 0x00100000 and every preload immediately triggers the overflow check.
+    //
+    // Pick the limit based on where ModStorage actually lives:
+    //   - mod_base inside BIOS RAM (< 0x100000):  cap at 0x100000 (old behavior)
+    //   - mod_base inside game RAM (>= 0x100000): cap at end of EE RAM (0x02000000)
+    // Either way we never write past physical RAM.
+    uint32_t MOD_STORAGE_LIMIT;
+    if ((uint32_t)sys.eecore.ModStorageStart < 0x00100000) {
+        MOD_STORAGE_LIMIT = 0x00100000;
+    } else {
+        MOD_STORAGE_LIMIT = 0x02000000; // 32 MiB EE RAM ceiling
+    }
 
     // EE_CORE re-runs module_checksum() on every game-initiated IOP reset
     // (iopmgr.c module_checksum()) over the first EEC_MOD_CHECKSUM_COUNT*4 KiB
