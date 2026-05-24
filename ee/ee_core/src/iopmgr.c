@@ -320,28 +320,57 @@ void New_Reset_Iop(const char *arg, int arglen)
     // 0 = IOPRP.IMG
     // 1 = imgdrv.irx
     // 2 = udnl.irx
-    // agent-N11: only load preloaded modules on the FIRST call to New_Reset_Iop.
-    // On the second call (e.g. from game's sceSifResetIop), the modules are
-    // already on the IOP from the first call. Re-loading them via
-    // SifExecModuleBuffer hangs (likely because Sony's IOP module loader
-    // doesn't handle duplicate module loads cleanly - LOADCORE may stall on
-    // the existing module's RPC bindings). The agent-N stage marker
-    // diagnostic shows TV=WHITE meaning hang is inside this loop on 2nd call.
+    // agent-N12: per-module color markers in the SifExecModuleBuffer loop.
+    // The N10 stage markers showed TV=WHITE, which sits between the
+    // services_start() marker (WHITE) and the post-loop GREEN. That tells
+    // us the hang is somewhere INSIDE this loop. Add a unique color for
+    // each module slot index so we see exactly which module's SifExec
+    // call is hanging.
     //
-    // The modules[0..2] (IOPRP, imgdrv, udnl) ARE always reloaded above as
-    // part of the reboot itself - the preloaded set modules[3..count]
-    // (cdvdman_emu, cdvdfsv, fakemod, p_black, AND the agent-N preloaded
-    // game IOP modules) should persist across resets without re-execution.
-    static int first_call = 1;
-    if (first_call) {
-        first_call = 0;
-        for (i = 3; i < irxtable->count; i++) {
-            irxptr_t p = irxtable->modules[i];
-            SifExecModuleBuffer((void *)p.ptr, p.size, p.arg_len, p.args, NULL);
+    // Slot-to-color mapping (cycles through bright distinguishable hues):
+    //   slot 3  -> RED         (255,  0,  0)
+    //   slot 4  -> ORANGE      (255,128,  0)
+    //   slot 5  -> YELLOW      (255,255,  0) - same as reboot3 marker, careful
+    //   slot 6  -> LIME        (128,255,  0)
+    //   slot 7  -> GREEN       (  0,255,  0)
+    //   slot 8  -> CYAN        (  0,255,255)
+    //   slot 9  -> AZURE       (  0,128,255)
+    //   slot 10 -> BLUE        (  0,  0,255)
+    //   slot 11 -> VIOLET      (128,  0,255)
+    //   slot 12 -> MAGENTA     (255,  0,255) - matches reboot2 marker, careful
+    //   slot 13 -> PINK        (255,  0,128)
+    //   slot 14 -> WHITE       (255,255,255) - matches services_start marker
+    //   slot 15+ -> GRAY       (128,128,128)
+    //
+    // Each color is set BEFORE the corresponding SifExecModuleBuffer call.
+    // If TV settles on one of these, that's the slot index that's hung.
+    for (i = 3; i < irxtable->count; i++) {
+        if (eec.flags & EECORE_FLAG_DBC) {
+            u32 colors_per_slot[] = {
+                GSCOLOR32(255,   0,   0),  // 3  RED
+                GSCOLOR32(255, 128,   0),  // 4  ORANGE
+                GSCOLOR32(255, 255,   0),  // 5  YELLOW
+                GSCOLOR32(128, 255,   0),  // 6  LIME
+                GSCOLOR32(  0, 255,   0),  // 7  GREEN
+                GSCOLOR32(  0, 255, 255),  // 8  CYAN
+                GSCOLOR32(  0, 128, 255),  // 9  AZURE
+                GSCOLOR32(  0,   0, 255),  // 10 BLUE
+                GSCOLOR32(128,   0, 255),  // 11 VIOLET
+                GSCOLOR32(255,   0, 255),  // 12 MAGENTA
+                GSCOLOR32(255,   0, 128),  // 13 PINK
+                GSCOLOR32(255, 255, 255),  // 14 WHITE
+            };
+            int idx = i - 3;
+            if (idx < (int)(sizeof(colors_per_slot)/sizeof(colors_per_slot[0])))
+                *GS_REG_BGCOLOR = colors_per_slot[idx];
+            else
+                *GS_REG_BGCOLOR = GSCOLOR32(128, 128, 128); // GRAY for higher slots
         }
+        irxptr_t p = irxtable->modules[i];
+        SifExecModuleBuffer((void *)p.ptr, p.size, p.arg_len, p.args, NULL);
     }
     if (eec.flags & EECORE_FLAG_DBC)
-        *GS_REG_BGCOLOR = COLOR_GREEN; // GREEN = module loop done (or skipped)
+        *GS_REG_BGCOLOR = GSCOLOR32(64, 64, 64); // DARK_GRAY = entire loop done
 
     DPRINTF("New_Reset_Iop complete!\n");
 
