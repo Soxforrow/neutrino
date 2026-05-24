@@ -269,9 +269,14 @@ void New_Reset_Iop(const char *arg, int arglen)
     // a few seconds and let services_start() try to bind anyway - frequently the
     // IOP IS actually responsive by then, the sync register just never updated.
     {
+        // agent-N8: 5-second-ish timeout (~290M iterations at ~5 cycles each
+        // on the 294 MHz EE). Was previously 4M which is ~70 ms - imperceptible
+        // and user couldn't tell whether the timeout fired. Make it a visible
+        // duration so the TEAL transition is observable on TV.
         volatile u32 iter = 0;
         while (!SifIopSync()) {
-            if (++iter > 0x00400000) {
+            if (++iter > 0x10000000) {
+                PPRINTF("agent-N8: SifIopSync TIMEOUT - continuing anyway\n");
                 if (eec.flags & EECORE_FLAG_DBC)
                     *GS_REG_BGCOLOR = COLOR_TEAL;
                 break;
