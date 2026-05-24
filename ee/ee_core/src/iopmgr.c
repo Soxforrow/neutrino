@@ -215,19 +215,26 @@ void New_Reset_Iop(const char *arg, int arglen)
     udnl_irx        = irxtable->modules[2].ptr;
     size_udnl_irx   = irxtable->modules[2].size;
 
-    // agent-N9: PPRINTF markers at each stage so we can see exactly where a
-    // hang lives. Each marker prints to SIO and appears in ps2client.log.
-    PPRINTF("N9: New_Reset_Iop entry, IOPRP=%p sz=%u udnl_irx=%p\n",
-            IOPRP_img, size_IOPRP_img, udnl_irx);
+    // agent-N10: distinct-color stage markers throughout New_Reset_Iop.
+    // PPRINTF via _print doesn't reach ps2client (ps2link doesn't forward
+    // SIO output), so use TV background color as the diagnostic channel.
+    // Whatever color the TV settles on tells us exactly which step hung.
+    //
+    // STAGE COLORS:
+    //   MAGENTA (255,0,255) - caller set, before entering New_Reset_Iop
+    //   ORANGE  (255,128,0) - after SifAllocIopHeap + CopyToIop + imgdrv exec
+    //   DK_BLUE (0,0,128)   - after _SifExecModuleBuffer/LoadModule for udnl
+    //   LIME    (128,255,0) - after SIF reg writes (entering SifIopSync wait)
+    //   TEAL    (0,128,128) - SifIopSync timed out (N7/N8)
+    //   WHITE   (255,255,255) - after services_start
+    //   GREEN   (0,255,0)   - after sbv_patch + module loop (all done)
+    //   YELLOW  (255,255,0) - caller sets (reboot3 stage)
+    //   BLACK   (0,0,0)     - services_exit done (caller)
 
     // Manually copy IOPRP to IOP
     length_rounded = (size_IOPRP_img + 0xF) & ~0xF;
-    PPRINTF("N9: about to SifAllocIopHeap(%u)\n", length_rounded);
     pIOP_buffer = SifAllocIopHeap(length_rounded);
-    PPRINTF("N9: SifAllocIopHeap returned %p\n", pIOP_buffer);
-    PPRINTF("N9: about to CopyToIop\n");
     CopyToIop(IOPRP_img, length_rounded, pIOP_buffer);
-    PPRINTF("N9: CopyToIop done\n");
 
     // Patch imgdrv.irx to point to the IOPRP
     for (i = 0; i < size_imgdrv_irx; i += 4) {
@@ -240,9 +247,10 @@ void New_Reset_Iop(const char *arg, int arglen)
     *(u32   *)(UNCACHED_SEG(&((unsigned char *)imgdrv_irx)[imgdrv_offset+8])) = size_IOPRP_img;
 
     // Load patched imgdrv.irx
-    PPRINTF("N9: about to SifExecModuleBuffer(imgdrv)\n");
     SifExecModuleBuffer((void *)imgdrv_irx, size_imgdrv_irx, 0, NULL, NULL);
-    PPRINTF("N9: SifExecModuleBuffer(imgdrv) done\n");
+
+    if (eec.flags & EECORE_FLAG_DBC)
+        *GS_REG_BGCOLOR = GSCOLOR32(255, 128, 0); // ORANGE = imgdrv loaded
 
     // Trigger IOP reboot with update
     DIntr();
@@ -250,20 +258,18 @@ void New_Reset_Iop(const char *arg, int arglen)
     Old_SifSetReg(SIF_REG_SMFLAG, SIF_STAT_BOOTEND);
     ee_kmode_exit();
     EIntr();
-    PPRINTF("N9: BOOTEND set\n");
 
     if (udnl_irx != NULL) {
         // Load custom UDNL
-        PPRINTF("N9: about to _SifExecModuleBuffer(udnl)\n");
         _SifExecModuleBuffer(udnl_irx, size_udnl_irx, udnl_cmdlen, udnl_cmd, NULL, 1);
-        PPRINTF("N9: _SifExecModuleBuffer(udnl) done\n");
     }
     else {
         // Load system UDNL
-        PPRINTF("N9: about to _SifLoadModule(udnl_mod)\n");
         _SifLoadModule(udnl_mod, udnl_cmdlen, udnl_cmd, NULL, LF_F_MOD_LOAD, 1);
-        PPRINTF("N9: _SifLoadModule(udnl_mod) done\n");
     }
+
+    if (eec.flags & EECORE_FLAG_DBC)
+        *GS_REG_BGCOLOR = GSCOLOR32(0, 0, 128); // DK_BLUE = udnl loaded
 
     DIntr();
     ee_kmode_enter();
@@ -273,10 +279,11 @@ void New_Reset_Iop(const char *arg, int arglen)
     Old_SifSetReg(SIF_SYSREG_SUBADDR, (int)NULL);
     ee_kmode_exit();
     EIntr();
-    PPRINTF("N9: SIF regs reset\n");
+
+    if (eec.flags & EECORE_FLAG_DBC)
+        *GS_REG_BGCOLOR = GSCOLOR32(128, 255, 0); // LIME = SIF regs reset, entering SifIopSync
 
     _iop_reboot_count++; // increment reboot counter to allow RPC clients to detect unbinding!
-    PPRINTF("N9: about to SifIopSync (with N8 timeout)\n");
 
     // agent-N7: V12 SifIopSync timeout.
     // On SCPH-70012 V12 (first slim) silicon, the *second* and later calls to
@@ -294,21 +301,19 @@ void New_Reset_Iop(const char *arg, int arglen)
         volatile u32 iter = 0;
         while (!SifIopSync()) {
             if (++iter > 0x10000000) {
-                PPRINTF("agent-N8: SifIopSync TIMEOUT - continuing anyway\n");
                 if (eec.flags & EECORE_FLAG_DBC)
                     *GS_REG_BGCOLOR = COLOR_TEAL;
                 break;
             }
         }
     }
-    PPRINTF("N9: SifIopSync done\n");
 
-    PPRINTF("N9: about to services_start\n");
     services_start();
-    PPRINTF("N9: services_start done\n");
+    if (eec.flags & EECORE_FLAG_DBC)
+        *GS_REG_BGCOLOR = COLOR_WHITE; // WHITE = services_start done
+
     // Patch the IOP to support LoadModuleBuffer
     sbv_patch_enable_lmb();
-    PPRINTF("N9: sbv_patch_enable_lmb done, about to load extra modules count=%d\n", irxtable->count);
 
     DPRINTF("Loading extra IOP modules...\n");
     // Skip the first modules:
@@ -317,10 +322,10 @@ void New_Reset_Iop(const char *arg, int arglen)
     // 2 = udnl.irx
     for (i = 3; i < irxtable->count; i++) {
         irxptr_t p = irxtable->modules[i];
-        PPRINTF("N9: SifExecModuleBuffer mod[%d] ptr=%p sz=%u\n", i, p.ptr, p.size);
         SifExecModuleBuffer((void *)p.ptr, p.size, p.arg_len, p.args, NULL);
     }
-    PPRINTF("N9: extra modules loop done\n");
+    if (eec.flags & EECORE_FLAG_DBC)
+        *GS_REG_BGCOLOR = COLOR_GREEN; // GREEN = all preloaded modules loaded onto IOP
 
     DPRINTF("New_Reset_Iop complete!\n");
 
@@ -382,18 +387,11 @@ void New_Reset_Iop2(const char *arg, int arglen, int eeload)
     }
     eeload_prev = eeload;
 
-    PPRINTF("N9: New_Reset_Iop2 eeload=%d resetcount=%d reboots=%c%c%c\n",
-            eeload, resetcount, reboot1?'1':'-', reboot2?'2':'-', reboot3?'3':'-');
-
-    if ((reboot1 + reboot2 + reboot3) == 0) {
-        PPRINTF("N9: no reboots needed, early return\n");
+    if ((reboot1 + reboot2 + reboot3) == 0)
         return;
-    }
 
     // Validate module storage
-    PPRINTF("N9: about to module_checksum\n");
     module_checksum();
-    PPRINTF("N9: module_checksum done\n");
 
     // Start services, some games hang here becouse the IOP is not responding
     if (eec.flags & EECORE_FLAG_DBC)
@@ -424,7 +422,6 @@ void New_Reset_Iop2(const char *arg, int arglen, int eeload)
     }
 
     if (reboot2) {
-        PPRINTF("N9: ENTER reboot2 stage\n");
         // Reboot the IOP with neutrino modules
         DPRINTF("%s: reboot2: IOP with neutrino modules\n", __FUNCTION__);
         if (eec.flags & EECORE_FLAG_DBC)
@@ -432,11 +429,9 @@ void New_Reset_Iop2(const char *arg, int arglen, int eeload)
         New_Reset_Iop(NULL, 0);
         // Known clean neutrino reboot state
         iopstate = 2;
-        PPRINTF("N9: EXIT reboot2 stage\n");
     }
 
     if (reboot3) {
-        PPRINTF("N9: ENTER reboot3 stage\n");
         DPRINTF("%s: reboot3: IOP with neutrino modules and IOPRP (V12 fix: ignoring game args)\n", __FUNCTION__);
 #ifdef __EESIO_DEBUG
         print_iop_args(arglen, arg);
@@ -447,11 +442,9 @@ void New_Reset_Iop2(const char *arg, int arglen, int eeload)
         (void)arg; (void)arglen;
         New_Reset_Iop(NULL, 0);
         iopstate = 3;
-        PPRINTF("N9: EXIT reboot3 stage\n");
     }
 
     resetcount++;
-    PPRINTF("N9: resetcount now %d\n", resetcount);
 
     // Exit services
     services_exit();
