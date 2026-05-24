@@ -19,6 +19,11 @@
     } while (0)
 #endif
 
+// agent-N3/N8: always-on print to SIO (visible in ps2client.log regardless of
+// EESIO_DEBUG). _print is declared by kernel.h and resolved by linking with
+// -ldebug. Use sparingly: high call volume during reboot will slow things down.
+#define PPRINTF(args...) _print(args)
+
 #define GSCOLOR32(R, G, B) ( \
     (u32)((R)&0x000000FF) <<  0 | \
     (u32)((G)&0x000000FF) <<  8 | \

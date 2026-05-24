@@ -43,7 +43,10 @@ EE_OBJS := $(EE_OBJS:%=$(EE_OBJS_DIR)%)
 EE_LDFLAGS = -nostartfiles -nostdlib -Tlinkfile -L$(PS2SDK)/ee/lib -s -Wl,-Map,$(MAPFILE) -Wl,-zmax-page-size=128 -Wl,--gc-sections
 EE_LIBS += -lpatches
 
-EE_LIBS += -lkernel -lgcc
+# agent-N8: -ldebug provides _print() so PPRINTF (always-on SIO log, distinct
+# from DPRINTF which is conditional on __EESIO_DEBUG) actually links. Without
+# this, any PPRINTF call produces an "undefined reference to _print" link error.
+EE_LIBS += -ldebug -lkernel -lgcc
 
 $(EE_OBJS_DIR)%.o : $(EE_SRC_DIR)%.c
 	@mkdir -p $(EE_OBJS_DIR)
