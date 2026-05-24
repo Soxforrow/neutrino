@@ -40,14 +40,44 @@ IRX_ID(MODNAME, 1, 1);
 
 #define GTFSCDVD_SID 0x00475453
 
-// RPC server data and queue
-static SifRpcServerData_t   sd __attribute__((aligned(64)));
+// Additional SIDs the game ELF references but no IOP module necessarily
+// registers in our setup. Stub these too so the game's sceSifBindRpc
+// succeeds for them and any subsequent CallRpc returns zeros instead of
+// hanging.
+//
+// From scan of SLUS_213.76 ELF (0x8000xxxx range lui+ori patterns):
+//   0x80000001 (FILEIO) - handled by p_black
+//   0x80000004 (?)       - unidentified, 1 call site
+//   0x80000007 (sceSio2man) - SIO2MAN.IRX preloaded, expect registered
+//   0x80000008 (?)       - unidentified, 1 call site
+//   0x80000009 (MC2?)    - MC2_D.IRX preloaded, expect registered
+//   0x8000001a (?)       - unidentified, 1 call site
+//   0x8000ffff           - wildcard/query, no need to register
+//
+// We register stubs for the unidentified ones. If a module also registers
+// them later, IOP RPC system uses last-registered (typically wins), so
+// real modules override our stubs - we're a safety net not a competitor.
+#define STUB_SID_0x4   0x80000004
+#define STUB_SID_0x8   0x80000008
+#define STUB_SID_0x1a  0x8000001a
+
+// RPC server data and queues - one per SID since we need separate
+// server descriptors. They share one DataQueue (one thread serves all).
+static SifRpcServerData_t   sd_gtfs __attribute__((aligned(64)));
+static SifRpcServerData_t   sd_4    __attribute__((aligned(64)));
+static SifRpcServerData_t   sd_8    __attribute__((aligned(64)));
+static SifRpcServerData_t   sd_1a   __attribute__((aligned(64)));
 static SifRpcDataQueue_t    dq __attribute__((aligned(64)));
 
 // Reply buffer. The real GTFSCDVD's largest reply is ~32 bytes (a directory
 // entry result struct). 256 bytes gives us comfortable headroom and matches
-// typical SIF RPC buffer sizes.
-static u8 rpcbuf[256] __attribute__((aligned(64)));
+// typical SIF RPC buffer sizes. One per SID (separate so concurrent calls
+// don't trample each other - but realistically only one server thread so
+// they're serialized; still, separate buffers are safer).
+static u8 rpcbuf_gtfs[256] __attribute__((aligned(64)));
+static u8 rpcbuf_4   [256] __attribute__((aligned(64)));
+static u8 rpcbuf_8   [256] __attribute__((aligned(64)));
+static u8 rpcbuf_1a  [256] __attribute__((aligned(64)));
 
 // RPC server callback. Real GTFSCDVD callback dispatches on fno 1..6 and
 // writes a single int result at *(int*)buf. We mimic that, but with
@@ -90,17 +120,33 @@ static void *rpc_callback(int fno, void *buf, int size)
     return buf;
 }
 
+// Generic stub callback for the unknown SIDs (0x80000004, 8, 1a).
+// Same behavior as rpc_callback but doesn't have the per-fno switch -
+// just zero everything and return.
+static void *rpc_stub_callback(int fno, void *buf, int size)
+{
+    int n = size > 64 ? 64 : size;
+    int i;
+    u8 *p = (u8 *)buf;
+    for (i = 0; i < n; i++)
+        p[i] = 0;
+    return buf;
+}
+
 // RPC server thread. SifSetRpcQueue/RegisterRpc/RpcLoop is the standard
 // IOP RPC server pattern - see e.g. neutrino's cdvdfsv.c.
+//
+// We register 4 RPC servers sharing the same DataQueue (one thread serves
+// all). Any of them that's also registered by a real IOP module later
+// will be transparently overridden by the real one - we're a safety net.
 static void rpc_server_thread(void *arg)
 {
     sceSifSetRpcQueue(&dq, GetThreadId());
-    sceSifRegisterRpc(&sd, GTFSCDVD_SID, &rpc_callback, rpcbuf,
-                      NULL, NULL, &dq);
+    sceSifRegisterRpc(&sd_gtfs, GTFSCDVD_SID, &rpc_callback,      rpcbuf_gtfs, NULL, NULL, &dq);
+    sceSifRegisterRpc(&sd_4,    STUB_SID_0x4, &rpc_stub_callback, rpcbuf_4,    NULL, NULL, &dq);
+    sceSifRegisterRpc(&sd_8,    STUB_SID_0x8, &rpc_stub_callback, rpcbuf_8,    NULL, NULL, &dq);
+    sceSifRegisterRpc(&sd_1a,   STUB_SID_0x1a,&rpc_stub_callback, rpcbuf_1a,   NULL, NULL, &dq);
     sceSifRpcLoop(&dq);
-    // Never returns. If it did somehow, the thread terminates and the RPC
-    // service becomes unavailable - but neither outcome is worse than the
-    // current state where no service exists at all.
 }
 
 int _start(int argc, char **argv)
