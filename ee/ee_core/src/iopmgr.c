@@ -436,9 +436,12 @@ static int Hook_SifSetReg(u32 register_num, int register_value)
     } else if (set_reg_hook == 0 && register_num == SIF_REG_SMFLAG && register_value == SIF_STAT_BOOTEND) {
         // Start of a new reboot sequence
         return 0;
-    } else if (set_reg_hook != 0) {
-        BGERROR(COLOR_FUNC_IOPREBOOT, 3);
     }
+    // agent-N5: tolerate unexpected SetReg calls during the post-reset
+    // state-machine window. Black/Criterion-engine titles do these in a
+    // different order than the standard SDK, and halting via BGERROR
+    // (previously here) prevented the game from booting at all. Just pass
+    // through to Old_SifSetReg so the hardware actually gets the write.
 
     return Old_SifSetReg(register_num, register_value);
 }
@@ -451,9 +454,13 @@ static int Hook_SifGetReg(u32 register_num)
     if (get_reg_hook == 1 && register_num == SIF_REG_SMFLAG) {
         get_reg_hook--;
         return 0;
-    } else if (get_reg_hook != 0) {
-        BGERROR(COLOR_FUNC_IOPREBOOT, 4);
     }
+    // agent-N5: tolerate unexpected GetReg calls during the post-reset
+    // state-machine window. Black/Criterion-engine titles query registers
+    // in a different order than the standard SDK; halting via BGERROR
+    // (previously here, producing the SOLID GREEN halt) prevented the
+    // game from advancing. Pass through to Old_SifGetReg so the caller
+    // gets a real register value.
 
     return Old_SifGetReg(register_num);
 }
