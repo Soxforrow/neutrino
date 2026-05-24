@@ -348,6 +348,19 @@ void New_Reset_Iop(const char *arg, int arglen)
     // so we can tell exactly which of LIBSD/MC2_D/RWA/GTFSCDVD is hanging.
     // (N12 used a generic GRAY for slot >= 15; user saw GRAY so we know
     // the hang is in one of those four).
+    // agent-N20: bring back first_call guard. Modules persist across IOP
+    // resets (UDNL doesn't clear pre-loaded module RAM). Second SifExec of
+    // the same module hangs LOADCORE waiting for existing RPC bindings to
+    // release. Only run the load loop the first time.
+    static int first_module_load = 1;
+    if (!first_module_load) {
+        if (eec.flags & EECORE_FLAG_DBC)
+            *GS_REG_BGCOLOR = COLOR_GREEN;
+        DPRINTF("Skipping module reload (already loaded)\n");
+        return;
+    }
+    first_module_load = 0;
+
     for (i = 3; i < irxtable->count; i++) {
         if (eec.flags & EECORE_FLAG_DBC) {
             u32 colors_per_slot[] = {
