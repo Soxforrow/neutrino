@@ -50,19 +50,43 @@ static SifRpcDataQueue_t    dq __attribute__((aligned(64)));
 static u8 rpcbuf[256] __attribute__((aligned(64)));
 
 // RPC server callback. Real GTFSCDVD callback dispatches on fno 1..6 and
-// writes a single int result at *(int*)buf. We mimic that: zero the entire
-// reply buffer and return it. The leading int is 0, which means "success
-// with no data" for the game's expected reply layout.
+// writes a single int result at *(int*)buf. We mimic that, but with
+// per-fno return codes that hopefully push the game's caller into a
+// "clean error" path rather than an "infinite retry" path:
+//
+//   fno 1 (TOC read):   return 0  ("0 entries read OK") - game might
+//                       handle empty TOC gracefully
+//   fno 2 (no-op):      return 0  (matches real behavior)
+//   fno 3 (search):     return -1 ("file not found") - clean error
+//   fno 4 (open):       return -1 ("can't open") - clean error
+//   fno 5 (status):     return 0  ("idle, no data pending")
+//   fno 6 (close):      return 0  ("closed OK")
+//
+// Pick whichever value most plausibly tells the game "I'm here, but no
+// data for you" so it can exit cleanly with an error rather than spin
+// forever waiting for an event that never fires.
 static void *rpc_callback(int fno, void *buf, int size)
 {
-    // Zero the buffer (or at least the first 64 bytes - whichever is less).
-    // Most importantly, *(int*)buf = 0 which is the slot the real callback
-    // uses for its function-result code.
+    // Zero the buffer first so out-of-spec fields are deterministic.
     int n = size > 64 ? 64 : size;
     int i;
     u8 *p = (u8 *)buf;
     for (i = 0; i < n; i++)
         p[i] = 0;
+
+    // Write per-fno return code at offset 0 (the slot the real callback
+    // uses for function result).
+    int rc = 0;
+    switch (fno) {
+        case 1: rc =  0; break;  // TOC: 0 entries OK
+        case 2: rc =  0; break;  // no-op
+        case 3: rc = -1; break;  // search: not found
+        case 4: rc = -1; break;  // open: error
+        case 5: rc =  0; break;  // status: idle
+        case 6: rc =  0; break;  // close: OK
+        default: rc = -1; break; // unknown fno: error
+    }
+    *(int *)buf = rc;
     return buf;
 }
 
