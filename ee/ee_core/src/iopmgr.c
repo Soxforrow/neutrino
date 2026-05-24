@@ -260,8 +260,23 @@ void New_Reset_Iop(const char *arg, int arglen)
 
     _iop_reboot_count++; // increment reboot counter to allow RPC clients to detect unbinding!
 
-    while (!SifIopSync()) {
-        ;
+    // agent-N7: V12 SifIopSync timeout.
+    // On SCPH-70012 V12 (first slim) silicon, the *second* and later calls to
+    // New_Reset_Iop sometimes hang in SifIopSync forever - the first call works
+    // because V12's SIF silicon is in a fresh post-BOOTEND state, but subsequent
+    // calls hit a timing edge case where the IOP never signals back. Without a
+    // timeout we lock up with TV=MAGENTA. With one, we transition to TEAL after
+    // a few seconds and let services_start() try to bind anyway - frequently the
+    // IOP IS actually responsive by then, the sync register just never updated.
+    {
+        volatile u32 iter = 0;
+        while (!SifIopSync()) {
+            if (++iter > 0x00400000) {
+                if (eec.flags & EECORE_FLAG_DBC)
+                    *GS_REG_BGCOLOR = COLOR_TEAL;
+                break;
+            }
+        }
     }
 
     services_start();
@@ -355,7 +370,17 @@ void New_Reset_Iop2(const char *arg, int arglen, int eeload)
         DPRINTF("%s: reboot1: IOP to base state\n", __FUNCTION__);
         SifInitRpc(0);
         while (!Reset_Iop("", 0)) {}
-        while (!SifIopSync()) {}
+        // agent-N7: SifIopSync timeout, same rationale as in New_Reset_Iop above.
+        {
+            volatile u32 iter = 0;
+            while (!SifIopSync()) {
+                if (++iter > 0x00400000) {
+                    if (eec.flags & EECORE_FLAG_DBC)
+                        *GS_REG_BGCOLOR = COLOR_TEAL;
+                    break;
+                }
+            }
+        }
         services_start();
         sbv_patch_enable_lmb();
         // Unusable state, no neutrino modules loaded
