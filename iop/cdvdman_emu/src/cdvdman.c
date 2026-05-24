@@ -329,6 +329,21 @@ int _start(int argc, char **argv)
     cdvdman_stat.disc_type_reg = (int)cdvdman_settings.media;
     M_DEBUG("DiskType=0x%x\n", cdvdman_settings.media);
 
+    // agent-N15: auto-init cdvdman so sceCdDiskReady() returns SCECdComplete
+    // immediately on first call. Previously cdvdman_cdinited stayed 0 until
+    // someone explicitly called sceCdInit(). Criterion's GTFSCDVD wrapper
+    // (loaded via SifExecModuleBuffer post-reset for Black SLUS_213.76) calls
+    // sceCdDiskReady in its _start() init code; if not-ready, it spins
+    // forever - confirmed by N12/N13 color markers showing the slot-18
+    // SifExecModuleBuffer call (GTFSCDVD) never returning.
+    //
+    // Auto-init here is safe because:
+    //   (1) cdvdman_emu is the network shim - there is no real disc to be
+    //       not-yet-spun-up, the data is always "ready" via network.
+    //   (2) Real cdvdman would set this flag during its own hardware init
+    //       which happens before any client module's _start() runs.
+    cdvdman_init();
+
     return MODULE_RESIDENT_END;
 }
 
