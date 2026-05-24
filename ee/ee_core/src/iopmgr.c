@@ -320,12 +320,28 @@ void New_Reset_Iop(const char *arg, int arglen)
     // 0 = IOPRP.IMG
     // 1 = imgdrv.irx
     // 2 = udnl.irx
-    for (i = 3; i < irxtable->count; i++) {
-        irxptr_t p = irxtable->modules[i];
-        SifExecModuleBuffer((void *)p.ptr, p.size, p.arg_len, p.args, NULL);
+    // agent-N11: only load preloaded modules on the FIRST call to New_Reset_Iop.
+    // On the second call (e.g. from game's sceSifResetIop), the modules are
+    // already on the IOP from the first call. Re-loading them via
+    // SifExecModuleBuffer hangs (likely because Sony's IOP module loader
+    // doesn't handle duplicate module loads cleanly - LOADCORE may stall on
+    // the existing module's RPC bindings). The agent-N stage marker
+    // diagnostic shows TV=WHITE meaning hang is inside this loop on 2nd call.
+    //
+    // The modules[0..2] (IOPRP, imgdrv, udnl) ARE always reloaded above as
+    // part of the reboot itself - the preloaded set modules[3..count]
+    // (cdvdman_emu, cdvdfsv, fakemod, p_black, AND the agent-N preloaded
+    // game IOP modules) should persist across resets without re-execution.
+    static int first_call = 1;
+    if (first_call) {
+        first_call = 0;
+        for (i = 3; i < irxtable->count; i++) {
+            irxptr_t p = irxtable->modules[i];
+            SifExecModuleBuffer((void *)p.ptr, p.size, p.arg_len, p.args, NULL);
+        }
     }
     if (eec.flags & EECORE_FLAG_DBC)
-        *GS_REG_BGCOLOR = COLOR_GREEN; // GREEN = all preloaded modules loaded onto IOP
+        *GS_REG_BGCOLOR = COLOR_GREEN; // GREEN = module loop done (or skipped)
 
     DPRINTF("New_Reset_Iop complete!\n");
 
