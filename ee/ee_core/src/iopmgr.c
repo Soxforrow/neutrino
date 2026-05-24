@@ -344,27 +344,35 @@ void New_Reset_Iop(const char *arg, int arglen)
     //
     // Each color is set BEFORE the corresponding SifExecModuleBuffer call.
     // If TV settles on one of these, that's the slot index that's hung.
+    // agent-N13: extend per-module palette to cover slots 15-18 distinctly
+    // so we can tell exactly which of LIBSD/MC2_D/RWA/GTFSCDVD is hanging.
+    // (N12 used a generic GRAY for slot >= 15; user saw GRAY so we know
+    // the hang is in one of those four).
     for (i = 3; i < irxtable->count; i++) {
         if (eec.flags & EECORE_FLAG_DBC) {
             u32 colors_per_slot[] = {
-                GSCOLOR32(255,   0,   0),  // 3  RED
-                GSCOLOR32(255, 128,   0),  // 4  ORANGE
-                GSCOLOR32(255, 255,   0),  // 5  YELLOW
-                GSCOLOR32(128, 255,   0),  // 6  LIME
-                GSCOLOR32(  0, 255,   0),  // 7  GREEN
-                GSCOLOR32(  0, 255, 255),  // 8  CYAN
-                GSCOLOR32(  0, 128, 255),  // 9  AZURE
-                GSCOLOR32(  0,   0, 255),  // 10 BLUE
-                GSCOLOR32(128,   0, 255),  // 11 VIOLET
-                GSCOLOR32(255,   0, 255),  // 12 MAGENTA
-                GSCOLOR32(255,   0, 128),  // 13 PINK
-                GSCOLOR32(255, 255, 255),  // 14 WHITE
+                GSCOLOR32(255,   0,   0),  // 3  RED      fhi_bd
+                GSCOLOR32(255, 128,   0),  // 4  ORANGE   dev9_hidden
+                GSCOLOR32(255, 255,   0),  // 5  YELLOW   smap
+                GSCOLOR32(128, 255,   0),  // 6  LIME     ministack
+                GSCOLOR32(  0, 255,   0),  // 7  GREEN    udpfs_bd
+                GSCOLOR32(  0, 255, 255),  // 8  CYAN     fakemod
+                GSCOLOR32(  0, 128, 255),  // 9  AZURE    p_black
+                GSCOLOR32(  0,   0, 255),  // 10 BLUE     SIO2MAN
+                GSCOLOR32(128,   0, 255),  // 11 VIOLET   SIO2D
+                GSCOLOR32(255,   0, 255),  // 12 MAGENTA  DBCMAN
+                GSCOLOR32(255,   0, 128),  // 13 PINK     DS2O
+                GSCOLOR32(255, 255, 255),  // 14 WHITE    DSPROUTE
+                GSCOLOR32(139,  69,  19),  // 15 BROWN    LIBSD
+                GSCOLOR32(139,   0,   0),  // 16 DK_RED   MC2_D
+                GSCOLOR32(  0,   0, 139),  // 17 DK_BLUE  RWA
+                GSCOLOR32(  0, 100,   0),  // 18 DK_GREEN GTFSCDVD
             };
             int idx = i - 3;
             if (idx < (int)(sizeof(colors_per_slot)/sizeof(colors_per_slot[0])))
                 *GS_REG_BGCOLOR = colors_per_slot[idx];
             else
-                *GS_REG_BGCOLOR = GSCOLOR32(128, 128, 128); // GRAY for higher slots
+                *GS_REG_BGCOLOR = GSCOLOR32(192, 192, 192); // light gray for slot 19+
         }
         irxptr_t p = irxtable->modules[i];
         SifExecModuleBuffer((void *)p.ptr, p.size, p.arg_len, p.args, NULL);
