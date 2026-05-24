@@ -461,7 +461,14 @@ static const struct preload_entry black_preload_list[] = {
     { "IOP", "MC2_D.IRX;1"    },
     // Black-specific subsystem modules
     { "IOP", "RWA.IRX;1"      },
-    { "IOP", "GTFSCDVD.IRX;1" },
+    // agent-N14: GTFSCDVD is Criterion's custom CDVD wrapper that expects
+    // Sony's stock CDVDMAN exports. When loaded onto IOP that has neutrino's
+    // cdvdman_emu (network shim) instead, its _start() init hangs trying to
+    // resolve cdvdman bindings - confirmed via TV=DARK_GREEN diagnostic at
+    // slot 18 in the SifExecModuleBuffer loop. Skip it for now and let the
+    // game try to load it directly - if it does and game still hangs, we'll
+    // need a stub GTFSCDVD or a cdvdman_emu shim for the missing exports.
+    // { "IOP", "GTFSCDVD.IRX;1" },
 };
 #define BLACK_PRELOAD_COUNT ((int)(sizeof(black_preload_list) / sizeof(black_preload_list[0])))
 
