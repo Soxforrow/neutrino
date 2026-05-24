@@ -60,6 +60,12 @@ IRX_ID(MODNAME, 1, 1);
 #define STUB_SID_0x4   0x80000004
 #define STUB_SID_0x8   0x80000008
 #define STUB_SID_0x1a  0x8000001a
+// agent-N22: RWA (RenderWare Audio) SIDs - extracted from RWA.IRX
+#define STUB_SID_RWA_28  0x80000028
+#define STUB_SID_RWA_30  0x80000030
+#define STUB_SID_RWA_80  0x80000080
+#define STUB_SID_RWA_AE  0x800000ae
+#define STUB_SID_RWA_AF  0x800000af
 
 // RPC server data and queues - one per SID since we need separate
 // server descriptors. They share one DataQueue (one thread serves all).
@@ -67,6 +73,11 @@ static SifRpcServerData_t   sd_gtfs __attribute__((aligned(64)));
 static SifRpcServerData_t   sd_4    __attribute__((aligned(64)));
 static SifRpcServerData_t   sd_8    __attribute__((aligned(64)));
 static SifRpcServerData_t   sd_1a   __attribute__((aligned(64)));
+static SifRpcServerData_t   sd_rwa28 __attribute__((aligned(64)));
+static SifRpcServerData_t   sd_rwa30 __attribute__((aligned(64)));
+static SifRpcServerData_t   sd_rwa80 __attribute__((aligned(64)));
+static SifRpcServerData_t   sd_rwaae __attribute__((aligned(64)));
+static SifRpcServerData_t   sd_rwaaf __attribute__((aligned(64)));
 static SifRpcDataQueue_t    dq __attribute__((aligned(64)));
 
 // Reply buffer. The real GTFSCDVD's largest reply is ~32 bytes (a directory
@@ -78,6 +89,11 @@ static u8 rpcbuf_gtfs[256] __attribute__((aligned(64)));
 static u8 rpcbuf_4   [256] __attribute__((aligned(64)));
 static u8 rpcbuf_8   [256] __attribute__((aligned(64)));
 static u8 rpcbuf_1a  [256] __attribute__((aligned(64)));
+static u8 rpcbuf_rwa28[256] __attribute__((aligned(64)));
+static u8 rpcbuf_rwa30[256] __attribute__((aligned(64)));
+static u8 rpcbuf_rwa80[256] __attribute__((aligned(64)));
+static u8 rpcbuf_rwaae[256] __attribute__((aligned(64)));
+static u8 rpcbuf_rwaaf[256] __attribute__((aligned(64)));
 
 // RPC server callback. Real GTFSCDVD callback dispatches on fno 1..6 and
 // writes a single int result at *(int*)buf. We mimic that, but with
@@ -146,6 +162,11 @@ static void rpc_server_thread(void *arg)
     sceSifRegisterRpc(&sd_4,    STUB_SID_0x4, &rpc_stub_callback, rpcbuf_4,    NULL, NULL, &dq);
     sceSifRegisterRpc(&sd_8,    STUB_SID_0x8, &rpc_stub_callback, rpcbuf_8,    NULL, NULL, &dq);
     sceSifRegisterRpc(&sd_1a,   STUB_SID_0x1a,&rpc_stub_callback, rpcbuf_1a,   NULL, NULL, &dq);
+    sceSifRegisterRpc(&sd_rwa28, STUB_SID_RWA_28, &rpc_stub_callback, rpcbuf_rwa28, NULL, NULL, &dq);
+    sceSifRegisterRpc(&sd_rwa30, STUB_SID_RWA_30, &rpc_stub_callback, rpcbuf_rwa30, NULL, NULL, &dq);
+    sceSifRegisterRpc(&sd_rwa80, STUB_SID_RWA_80, &rpc_stub_callback, rpcbuf_rwa80, NULL, NULL, &dq);
+    sceSifRegisterRpc(&sd_rwaae, STUB_SID_RWA_AE, &rpc_stub_callback, rpcbuf_rwaae, NULL, NULL, &dq);
+    sceSifRegisterRpc(&sd_rwaaf, STUB_SID_RWA_AF, &rpc_stub_callback, rpcbuf_rwaaf, NULL, NULL, &dq);
     sceSifRpcLoop(&dq);
 }
 
