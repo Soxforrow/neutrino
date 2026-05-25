@@ -605,4 +605,12 @@ void Install_Kernel_Hooks(void)
 
     Old_SifGetReg = GetSyscallHandler(__NR_SifGetReg);
     SetSyscall(__NR_SifGetReg, &Hook_SifGetReg);
+
+    // agent-N24: V12 silicon may execute stale i-cache for the kernel
+    // syscall vector after SetSyscall writes. Flush dcache so our writes
+    // commit, then invalidate icache so CPU re-reads fresh kernel code.
+    // Without this, the first call to a hooked syscall may read the OLD
+    // (un-hooked) entry from icache.
+    FlushCache(WRITEBACK_DCACHE);
+    FlushCache(INVALIDATE_ICACHE);
 }
