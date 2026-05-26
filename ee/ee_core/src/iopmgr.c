@@ -509,6 +509,14 @@ void New_Reset_Iop2(const char *arg, int arglen, int eeload)
 #endif
         if (eec.flags & EECORE_FLAG_DBC)
             *GS_REG_BGCOLOR = COLOR_YELLOW;
+        // agent-N27: V12 silicon needs settling time between consecutive
+        // New_Reset_Iop calls. Without this delay, the 2nd call hangs in
+        // SifAllocIopHeap or early SIF setup. ~200ms should be enough for
+        // IOP to fully stabilize after reboot2's reset propagation.
+        if (reboot2) {
+            volatile u32 spin = 0;
+            while (spin < 0x02000000) { spin++; }
+        }
         // V12 FIX: ignore game's IOPRP args, use neutrino's IOPRP only
         (void)arg; (void)arglen;
         New_Reset_Iop(NULL, 0);
