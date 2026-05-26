@@ -509,11 +509,12 @@ void New_Reset_Iop2(const char *arg, int arglen, int eeload)
 #endif
         if (eec.flags & EECORE_FLAG_DBC)
             *GS_REG_BGCOLOR = COLOR_YELLOW;
-        // agent-N27: V12 silicon needs settling time between consecutive
-        // New_Reset_Iop calls. Without this delay, the 2nd call hangs in
-        // SifAllocIopHeap or early SIF setup. ~200ms should be enough for
-        // IOP to fully stabilize after reboot2's reset propagation.
-        if (reboot2) {
+        // agent-N28: V12 silicon needs settling time before reboot3's
+        // New_Reset_Iop. ALWAYS delay (not just after reboot2) - the IOP
+        // is in a transient state from the game's just-arrived reset
+        // request even when we don't fire reboot2 explicitly.
+        // ~200ms at 294MHz EE.
+        {
             volatile u32 spin = 0;
             while (spin < 0x02000000) { spin++; }
         }
