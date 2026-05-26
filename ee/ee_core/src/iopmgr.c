@@ -453,8 +453,13 @@ void New_Reset_Iop2(const char *arg, int arglen, int eeload)
     }
     eeload_prev = eeload;
 
-    if ((reboot1 + reboot2 + reboot3) == 0)
+    if ((reboot1 + reboot2 + reboot3) == 0) {
+        // agent-N26: even when we ignore the reset (iop_rm[X]=0 etc.),
+        // bump _iop_reboot_count so RPC clients still re-bind. Without this,
+        // game's sceSifSyncIop polls the unchanged counter and waits forever.
+        _iop_reboot_count++;
         return;
+    }
 
     // Validate module storage
     module_checksum();
