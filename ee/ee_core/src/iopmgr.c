@@ -498,19 +498,15 @@ void New_Reset_Iop2(const char *arg, int arglen, int eeload)
     }
 
     if (reboot3) {
-        DPRINTF("%s: reboot3: SKIPPED on V12 (silicon hangs in 2nd New_Reset_Iop)\n", __FUNCTION__);
+        DPRINTF("%s: reboot3: IOP with neutrino modules and IOPRP (V12 fix: ignoring game args)\n", __FUNCTION__);
 #ifdef __EESIO_DEBUG
         print_iop_args(arglen, arg);
 #endif
         if (eec.flags & EECORE_FLAG_DBC)
             *GS_REG_BGCOLOR = COLOR_YELLOW;
-        // agent-N25: V12 silicon's 2nd New_Reset_Iop hangs in SifAllocIopHeap
-        // or early SIF setup. Modules from reboot2 are already loaded.
-        // Skip the actual New_Reset_Iop call - game thinks IOP reset done,
-        // in reality reboot2 already did it. The N20 first_module_load guard
-        // also makes the module loop a no-op on this path.
+        // V12 FIX: ignore game's IOPRP args, use neutrino's IOPRP only
         (void)arg; (void)arglen;
-        // (skipped) New_Reset_Iop(NULL, 0);
+        New_Reset_Iop(NULL, 0);
         iopstate = 3;
     }
 
